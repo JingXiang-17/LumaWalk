@@ -1,53 +1,39 @@
 lumawalk/
 │
-├── .github/                # GitHub Actions (Optional: basic CI/CD for formatting)
 ├── .gitignore              # Standard ignore for Python, Flutter, and big data files
+├── LICENSE
 ├── README.md               # Hackathon pitch, setup instructions, and API docs
+├── ownership.txt
 │
 ├── docs/                   # Shared Documentation
-│   ├── LumaWalk_PRD.md     # The core Product Requirements Document
-│   ├── schemas.json        # The agreed-upon JSON API contracts (Locked on Hour 1)
-│   └── pitch_assets/       # Logos, pitch deck, and UI mockups
+│   ├── LumaWalk Hackathon - Team Job Scopes.md
+│   ├── LumaWalk Product Requirements Document (PRD).md # The core Product Requirements Document
+│   ├── pitch_assets/       # Logos, pitch deck, and UI mockups
+│   ├── project_structure.txt
+│   └── schemas.json        # The agreed-upon JSON API contracts (Locked on Hour 1)
 │
-├── data_pipeline/          # ➡️ MEMBER 1'S TERRITORY (Data Engineering)
+├── data_pipeline/          # Member 1's territory (Data Engineering)
+│   ├── output/
+│   │   └── campus_network.graphml # The final graph file (Committed here to share)
 │   ├── requirements.txt    # osmnx, geopandas, shapely
-│   ├── scripts/
-│   │   ├── 01_fetch_osm.py # Pulls raw data from OSM
-│   │   ├── 02_patch_lit.py # Injects the "Day 0" lighting heuristic
-│   │   └── 03_buffers.py   # Calculates 30-50m Safe Haven buffers
-│   └── output/             
-│       └── campus_network.graphml # The final graph file (Committed here to share)
+│   └── scripts/
+│       ├── 01_fetch_osm.py # Pulls raw data from OSM
+│       ├── 02_patch_lit.py # Injects the "Day 0" lighting heuristic
+│       └── 03_buffers.py   # Calculates 30-50m Safe Haven buffers
 │
-├── backend/                # ➡️ MEMBER 2 & 3'S TERRITORY (FastAPI)
-│   ├── requirements.txt    # fastapi, uvicorn, networkx, pydantic
+├── backend/                # Members 2 & 3's territory (FastAPI)
+│   ├── buddy_service/
+│   │   ├── router.py       # Member 3: POST /v1/buddy/telemetry
+│   │   ├── schemas.py      # Pydantic models matching docs/schemas.json
+│   │   └── spatial.py      # Member 3: Cross-track deviation math
 │   ├── main.py             # FastAPI application instance & router registration
-│   ├── data/               
-│   │   └── campus_network.graphml # Copied from data_pipeline/output/
-│   ├── app/
-│   │   ├── routers/
-│   │   │   ├── route.py    # Member 2: POST /v1/directions
-│   │   │   └── buddy.py    # Member 3: POST /v1/buddy/telemetry
-│   │   ├── core/
-│   │   │   ├── algo.py     # Member 2: Dijkstra/A* safety cost algorithm
-│   │   │   └── spatial.py  # Member 3: Cross-track deviation math
-│   │   └── schemas/
-│   │       └── models.py   # Pydantic models matching docs/schemas.json
+│   ├── requirements.txt    # fastapi, uvicorn, networkx, pydantic
+│   ├── routing_service/
+│   │   ├── algo.py         # Member 2: Dijkstra/A* safety cost algorithm
+│   │   ├── router.py       # Member 2: POST /v1/directions
+│   │   └── schemas.py      # Pydantic models matching docs/schemas.json
 │   └── tests/
 │       └── mock_graphs/    # Member 2's tiny 10-node dummy graphs for Day 1 testing
 │
-└── frontend/               # ➡️ MEMBER 4'S TERRITORY (Flutter Web/App Demo)
-    ├── pubspec.yaml        # flutter_map, latlong2, http, riverpod/provider
-    ├── assets/
-    │   └── mock_data/      # JSON fixture files for Day 1-4 UI building
-    └── lib/
-        ├── main.dart
-        ├── screens/
-        │   └── split_dashboard.dart # Main dual-panel layout
-        ├── widgets/
-        │   ├── map_canvas.dart      # MapLibre/flutter_map rendering
-        │   ├── json_inspector.dart  # Right-panel metrics & explainability
-        │   └── alert_modal.dart     # The 20s Virtual Buddy countdown
-        ├── services/
-        │   └── api_client.dart      # Fetches from localhost:8000
-        └── models/
-            └── route_response.dart  # Dart data classes mapping the API payload
+└── frontend/               # Member 4's territory (frontend demo)
+    └── guide.txt

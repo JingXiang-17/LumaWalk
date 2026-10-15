@@ -1,0 +1,51 @@
+# LUMAWALK: DIRECTORY & FILE OWNERSHIP GUIDE
+Rule #1: Do not edit files in someone else's territory. 
+Rule #2: If you need a change in someone else's output, talk to them. Do not fix their code.
+
+---------------------------------------------------------
+SHARED TERRITORY (Proceed with Caution)
+---------------------------------------------------------
+/docs/schemas.json 
+  -> THE HOLY GRAIL. Any changes to this file must be agreed upon by Members 2, 3, and 4 simultaneously. If you change a key here, you break the frontend.
+/README.md 
+  -> Everyone contributes to this for the final pitch.
+/docs/* directory
+  -> Essential documents like prd and jobscopes are here.
+
+---------------------------------------------------------
+MEMBER 1: DATA PIPELINE (The Offline Map Maker)
+---------------------------------------------------------
+OWNED DIRECTORY: /data_pipeline/
+You own everything in here. 
+- /scripts/*.py : All your OSM extraction and buffering logic.
+- /output/campus_network.graphml : Your final deliverable. When this updates, tell Member 2 to restart their server.
+
+---------------------------------------------------------
+MEMBER 2: ROUTING ENGINE (The Route Master)
+---------------------------------------------------------
+OWNED DIRECTORY: /backend/routing_service/
+You own the pathfinding math and the FastAPI startup.
+- /backend/main.py : (You own this. Member 3 will just ask you to import their router here).
+- /backend/routing_service/router.py : Your /v1/directions endpoints.
+- /backend/routing_service/algo.py : Your Dijkstra/A* math.
+- /backend/routing_service/schemas.py : ONLY the Pydantic models for routing.
+
+---------------------------------------------------------
+MEMBER 3: VIRTUAL BUDDY (The Tracker)
+---------------------------------------------------------
+OWNED DIRECTORY: /backend/buddy_service/
+You own the telemetry logic. You do not touch main.py or Member 2's schemas. 
+- /backend/buddy_service/router.py : Your /v1/buddy/telemetry endpoints.
+- /backend/buddy_service/spatial.py : Your cross-track deviation math.
+- /backend/buddy_service/schemas.py : ONLY the Pydantic models for the Virtual Buddy.
+
+---------------------------------------------------------
+MEMBER 4: FRONTEND DEMO (The Face of the App)
+---------------------------------------------------------
+OWNED DIRECTORY: /frontend/
+You own this entire Flutter universe. Nobody else is allowed to touch it.
+Below are directories that not yet being created, so do cook yourself.
+- /lib/screens/ : Main split-screen layout.
+- /lib/widgets/ : Individual UI components (map, buttons, modals).
+- /lib/models/ : Dart classes parsed exactly from schemas.json.
+- /assets/mock_data/ : Your dummy JSON files for early testing.
