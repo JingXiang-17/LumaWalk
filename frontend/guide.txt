@@ -1,0 +1,47 @@
+1. Project Initialization & Folder Setup
+Do not create a new repo. Run flutter create . inside the existing frontend/ folder.
+
+Delete the default counter app in lib/main.dart.
+
+Immediately create these four folders inside lib/:
+
+screens/ (for the main layout)
+
+widgets/ (for isolated UI pieces like the map or the countdown timer)
+
+services/ (for API fetching logic)
+
+models/ (for Dart classes that parse JSON)
+
+2. The Mock Data Rule (Do Not Wait for Backend)
+Never wait for the API to be "ready."
+
+Go to docs/schemas.json in the root of our repo. Copy the exact JSON responses.
+
+Save them as local files inside an assets/mock_data/ folder and declare them in your pubspec.yaml.
+
+Use rootBundle.loadString to load this dummy data into your app. Build the entire layout, draw the map lines, and populate the inspector panel using this mock data. We will only swap to live http calls on Day 5.
+
+3. UI/UX & Layout Specs
+Dark Mode is Mandatory: Set theme: ThemeData.dark() in main.dart. This is a nighttime safety app; the routes need to glow against a dark background.
+
+The Split Screen: Use a simple Row for the desktop/web layout.
+
+Left side: Wrap the map in an Expanded widget so it takes up the majority of the screen.
+
+Right side: Use a Container with a fixed width (e.g., 400px) for the JSON/Telemetry Inspector.
+
+Map Rendering: Use the flutter_map and latlong2 packages.
+
+Direct/Unsafe Route = Colors.red.shade900 (dashed if possible).
+
+LumaWalk Safe Route = Colors.cyanAccent (solid, thick line).
+
+Define color palette first and give AI model the color palette for design.
+
+4. AI "Vibe Coding" Constraints
+Micro-Components Only: Never ask the AI to "build the LumaWalk dashboard." It will generate a tangled, broken widget tree.
+
+Ask for pieces: Prompt the AI to build isolated widgets. E.g., "Write a Flutter AlertDialog widget that has a 20-second circular countdown timer." or "Generate Dart data models for this exact JSON string: [paste JSON]."
+
+Assemble it yourself: Take the clean widgets the AI generates and manually place them into your Row and Column structures.
