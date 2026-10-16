@@ -1,0 +1,10 @@
+{
+  "edges_total": 67342,
+  "edges_by_source": {
+    "heuristic": 65194,
+    "osm": 2148
+  },
+  "share_with_real_osm_lit_tag": 0.032,
+  "share_manual_override": 0.0,
+  "share_heuristic": 0.968
+}
