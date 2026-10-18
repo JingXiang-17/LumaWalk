@@ -106,7 +106,7 @@ class _MobileAppShellState extends State<MobileAppShell> {
                           ),
                           const SizedBox(height: 16),
                           const Text(
-                            "LunaWalk",
+                            "LumaWalk",
                             style: TextStyle(
                               color: AppColors.primaryGold,
                               fontSize: 30,

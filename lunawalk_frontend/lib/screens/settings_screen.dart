@@ -34,7 +34,7 @@ class SettingsScreen extends StatelessWidget {
                 onLogout!();
               }
             },
-            child: const Text("Logout",
+            child: const Text("Log Out",
                 style: TextStyle(
                     color: Colors.white, fontWeight: FontWeight.bold)),
           ),

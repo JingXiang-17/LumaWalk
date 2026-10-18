@@ -1,8 +1,4 @@
 class DirectionsService {
-  static const double destinationLat = 3.1279;
-  static const double destinationLng = 101.6501;
-  static const String destinationName = 'UM FSKTM';
-
   static Future<Map<String, dynamic>> fetchDirections({
     required double alpha,
     required bool avoidUnlit,
@@ -10,11 +6,12 @@ class DirectionsService {
     required double originLat,
     required double originLng,
     required String originLabel,
+    required double destinationLat,
+    required double destinationLng,
+    required String destinationName,
   }) async {
-    // Simulate API round-trip latency
     await Future.delayed(const Duration(milliseconds: 350));
 
-    // DYNAMIC MOCK DATA: Origin matches real user location, Destination is UM FSKTM
     return {
       "status": "success",
       "engine_version": "mock-route-preview",

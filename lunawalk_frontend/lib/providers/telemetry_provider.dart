@@ -4,14 +4,15 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart'; // NEW IMPORT
 import 'package:latlong2/latlong.dart';
-import '../services/directions_service.dart';
+import '../services/osm_routing_service.dart';
 
 class TelemetryProvider extends ChangeNotifier {
   static const double _simulationStartLat = 3.1180;
   static const double _simulationStartLng = 101.6230;
+  final OsmRoutingService _osmRoutingService;
 
   // 1. User Profile & Preferences
-  String _userName = "Luna Walker";
+  String _userName = "Luma Walker";
   String _studentId = "STD-2024-88412";
   String _phoneNumber = "+60 12-345 6789";
   int _detourCapPct = 25;
@@ -41,10 +42,26 @@ class TelemetryProvider extends ChangeNotifier {
   bool _isSimulationMode = false;
   double _currentLat = 3.1180;
   double _currentLng = 101.6230;
+  double _currentHeading = 0;
   bool _hasCurrentLocation = false;
   bool _isLocating = false;
   String? _locationError;
   StreamSubscription<Position>? _locationSubscription;
+  Timer? _routeRefreshTimer;
+  int _routeRequestId = 0;
+  bool _isDisposed = false;
+  bool _isMapDataLoading = true;
+  bool _isRouteLoading = false;
+  String? _routeError;
+  List<OsmSafeHaven> _safeHavens = const [];
+  OsmRoute? _safeRoute;
+  OsmRoute? _directRoute;
+  OsmRoute? _selectedRoute;
+  LatLng? _destination;
+  String? _destinationName;
+  bool _hasReachedDestination = false;
+  String? _navigationInstruction;
+  int? _lastAnnouncedTurnIndex;
 
   bool _isOffTrack = false;
   bool _showOffTrackModal = false;
@@ -67,8 +84,6 @@ class TelemetryProvider extends ChangeNotifier {
   double _alphaSafetyWeight = 2.5;
   bool _avoidUnlitAlleys = true;
   bool _isNavigating = false;
-  bool _isFetchingApi = false;
-  int _lastResponseMs = 356;
 
   String _buddyConsoleStatus = "MONITORING";
   bool _isSosActive = false;
@@ -78,11 +93,32 @@ class TelemetryProvider extends ChangeNotifier {
   int _areYouOkCountdown = 19;
   Timer? _modalTimer;
 
-  TelemetryProvider() {
+  TelemetryProvider({OsmRoutingService? osmRoutingService})
+      : _osmRoutingService = osmRoutingService ?? OsmRoutingService() {
+    unawaited(_loadOsmData());
     unawaited(refreshCurrentLocation());
   }
 
+  Future<void> _loadOsmData() async {
+    try {
+      final safeHavens = await _osmRoutingService.loadSafeHavens();
+      if (_isDisposed) return;
+      _safeHavens = safeHavens;
+      _isMapDataLoading = false;
+      _routeError = null;
+      _scheduleRouteRefresh();
+    } catch (error, stackTrace) {
+      if (_isDisposed) return;
+      _isMapDataLoading = false;
+      _routeError = 'Could not load the OSM GeoJSON dataset: $error';
+      debugPrintStack(label: _routeError, stackTrace: stackTrace);
+    } finally {
+      if (!_isDisposed) notifyListeners();
+    }
+  }
+
   Future<void> refreshCurrentLocation() async {
+    if (_isDisposed) return;
     _isLocating = true;
     _locationError = null;
     notifyListeners();
@@ -93,8 +129,10 @@ class TelemetryProvider extends ChangeNotifier {
         _locationError = 'Turn on location services to find your position.';
         return;
       }
+      if (_isDisposed) return;
 
       LocationPermission permission = await Geolocator.checkPermission();
+      if (_isDisposed) return;
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
@@ -111,6 +149,7 @@ class TelemetryProvider extends ChangeNotifier {
           timeLimit: Duration(seconds: 10),
         ),
       );
+      if (_isDisposed) return;
       _updateCurrentLocation(position);
       if (_isSimulationMode) return;
       _locationSubscription = Geolocator.getPositionStream(
@@ -121,34 +160,42 @@ class TelemetryProvider extends ChangeNotifier {
       ).listen(
         _updateCurrentLocation,
         onError: (Object error, StackTrace stackTrace) {
+          if (_isDisposed) return;
           _locationError = 'Live location updates stopped: $error';
           debugPrintStack(label: _locationError, stackTrace: stackTrace);
           notifyListeners();
         },
       );
     } catch (error, stackTrace) {
+      if (_isDisposed) return;
       _locationError = 'Unable to get your location: $error';
       debugPrintStack(label: _locationError, stackTrace: stackTrace);
     } finally {
       _isLocating = false;
-      notifyListeners();
+      if (!_isDisposed) notifyListeners();
     }
   }
 
   void _updateCurrentLocation(Position position) {
-    if (_isSimulationMode) return;
+    if (_isSimulationMode || _isDisposed) return;
     _currentLat = position.latitude;
     _currentLng = position.longitude;
+    if (position.heading.isFinite && position.heading >= 0) {
+      _currentHeading = position.heading;
+    }
     _hasCurrentLocation = true;
     _locationError = null;
     _checkRouteDeviation();
+    _scheduleRouteRefresh();
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _isDisposed = true;
     _modalTimer?.cancel();
     _backOnTrackTimer?.cancel();
+    _routeRefreshTimer?.cancel();
     unawaited(_locationSubscription?.cancel());
     super.dispose();
   }
@@ -166,6 +213,7 @@ class TelemetryProvider extends ChangeNotifier {
   bool get isSimulationMode => _isSimulationMode;
   double get currentLat => _currentLat;
   double get currentLng => _currentLng;
+  double get currentHeading => _currentHeading;
   bool get hasCurrentLocation => _hasCurrentLocation;
   bool get isLocating => _isLocating;
   String? get locationError => _locationError;
@@ -173,12 +221,39 @@ class TelemetryProvider extends ChangeNotifier {
   bool get showOffTrackModal => _showOffTrackModal;
   bool get showBackOnTrackBanner => _showBackOnTrackBanner;
   bool get hasSelectedRoute => _hasSelectedRoute;
-  List<LatLng> get routePoints => _hasSelectedRoute
-      ? List.unmodifiable(_selectedRoutePoints)
-      : _buildRoutePoints(
-          _selectedRouteIndex,
-          LatLng(_currentLat, _currentLng),
-        );
+  bool get hasDestination => _destination != null;
+  bool get hasReachedDestination => _hasReachedDestination;
+  String? get navigationInstruction => _navigationInstruction;
+  bool get isMapDataLoading => _isMapDataLoading;
+  bool get isRouteLoading => _isRouteLoading;
+  String? get routeError => _routeError;
+  OsmRoute? get safeRoute => _safeRoute;
+  OsmRoute? get directRoute => _directRoute;
+  List<LatLng> get routePoints =>
+      _selectedRoute?.points ??
+      (_selectedRouteIndex == 0 ? _safeRoute?.points : _directRoute?.points) ??
+      const [];
+  List<OsmSafeHaven> get nearbySafeHavens {
+    if (!_safeHavensVisible || _safeRoute == null) return const [];
+    final points = _selectedRoute?.points ?? _safeRoute!.points;
+    if (points.isEmpty) return const [];
+    final minLatitude =
+        points.map((point) => point.latitude).reduce(math.min) - 0.006;
+    final maxLatitude =
+        points.map((point) => point.latitude).reduce(math.max) + 0.006;
+    final minLongitude =
+        points.map((point) => point.longitude).reduce(math.min) - 0.006;
+    final maxLongitude =
+        points.map((point) => point.longitude).reduce(math.max) + 0.006;
+    return _safeHavens
+        .where((haven) =>
+            haven.point.latitude >= minLatitude &&
+            haven.point.latitude <= maxLatitude &&
+            haven.point.longitude >= minLongitude &&
+            haven.point.longitude <= maxLongitude)
+        .take(100)
+        .toList(growable: false);
+  }
 
   String get targetEnvironment => _targetEnvironment;
   bool get mockJsonInspector => _mockJsonInspector;
@@ -190,12 +265,11 @@ class TelemetryProvider extends ChangeNotifier {
   int get selectedRouteIndex => _selectedRouteIndex;
   double get alphaSafetyWeight => _alphaSafetyWeight;
   bool get avoidUnlitAlleys => _avoidUnlitAlleys;
-  String get destinationName => DirectionsService.destinationName;
-  double get destinationLat => DirectionsService.destinationLat;
-  double get destinationLng => DirectionsService.destinationLng;
+  String get destinationName =>
+      _destinationName ?? 'Enter a destination';
+  double get destinationLat => _destination?.latitude ?? _simulationStartLat;
+  double get destinationLng => _destination?.longitude ?? _simulationStartLng;
   bool get isNavigating => _isNavigating;
-  bool get isFetchingApi => _isFetchingApi;
-  int get lastResponseMs => _lastResponseMs;
   String get buddyConsoleStatus => _buddyConsoleStatus;
   bool get isSosActive => _isSosActive;
   DateTime? get sosTriggeredAt => _sosTriggeredAt;
@@ -212,95 +286,149 @@ class TelemetryProvider extends ChangeNotifier {
     _showBackOnTrackBanner = false;
     _offTrackAlertDismissed = false;
     _hasSelectedRoute = false;
+    _selectedRoute = null;
     _selectedRoutePoints = const [];
+    _navigationInstruction = null;
+    _hasReachedDestination = false;
     _selectedRouteIndex = 0;
     _backOnTrackTimer?.cancel();
+    _routeRequestId++;
+    _isRouteLoading = false;
+    _safeRoute = null;
+    _directRoute = null;
     if (isSim) {
       _currentLat = _simulationStartLat;
       _currentLng = _simulationStartLng;
       _hasCurrentLocation = true;
       unawaited(_locationSubscription?.cancel());
       _locationSubscription = null;
+      _scheduleRouteRefresh();
     } else {
       _hasCurrentLocation = false;
+      _safeRoute = null;
+      _directRoute = null;
+      _selectedRoute = null;
       unawaited(refreshCurrentLocation());
     }
     notifyListeners();
   }
 
   void moveAvatar(double deltaLat, double deltaLng) {
+    if (deltaLat != 0 || deltaLng != 0) {
+      _currentHeading =
+          (math.atan2(deltaLng, deltaLat) * 180 / math.pi + 360) % 360;
+    }
     _currentLat += deltaLat;
     _currentLng += deltaLng;
     _checkRouteDeviation();
+    _scheduleRouteRefresh();
     notifyListeners();
   }
 
   static const double _routeDeviationThresholdMeters = 35;
-  static const double _earthRadiusMeters = 6371000;
-
-  List<LatLng> _buildRoutePoints(int routeIndex, LatLng origin) {
-    final destination = LatLng(destinationLat, destinationLng);
-    if (routeIndex != 0) return [origin, destination];
-
-    final averageLatitudeRadians = (origin.latitude + destination.latitude) *
-        0.5 *
-        (3.141592653589793 / 180);
-    final longitudeScale = math.cos(averageLatitudeRadians);
-    final deltaX = (destination.longitude - origin.longitude) * longitudeScale;
-    final deltaY = destination.latitude - origin.latitude;
-    final length = math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    if (length == 0) return [origin, destination];
-
-    const safetyDetourDegrees = 0.00045;
-    final offsetLatitude = deltaX / length * safetyDetourDegrees;
-    final offsetLongitude =
-        -deltaY / length * safetyDetourDegrees / longitudeScale;
-    final midpoint = LatLng(
-      (origin.latitude + destination.latitude) / 2 + offsetLatitude,
-      (origin.longitude + destination.longitude) / 2 + offsetLongitude,
-    );
-    return [origin, midpoint, destination];
-  }
 
   double _distanceFromRouteMeters(LatLng position, List<LatLng> route) {
     var nearestDistance = double.infinity;
     for (var index = 0; index < route.length - 1; index++) {
       final start = route[index];
       final end = route[index + 1];
-      final averageLatitudeRadians =
-          position.latitude * (3.141592653589793 / 180);
-      final longitudeScale = math.cos(averageLatitudeRadians);
-      final startX = (start.longitude - position.longitude) *
-          longitudeScale *
-          _earthRadiusMeters *
-          (3.141592653589793 / 180);
-      final startY = (start.latitude - position.latitude) *
-          _earthRadiusMeters *
-          (3.141592653589793 / 180);
-      final endX = (end.longitude - position.longitude) *
-          longitudeScale *
-          _earthRadiusMeters *
-          (3.141592653589793 / 180);
-      final endY = (end.latitude - position.latitude) *
-          _earthRadiusMeters *
-          (3.141592653589793 / 180);
+      final latitudeRadians = position.latitude * (math.pi / 180);
+      final longitudeScale = math.cos(latitudeRadians);
+      final startX =
+          (start.longitude - position.longitude) * longitudeScale * 111195;
+      final startY = (start.latitude - position.latitude) * 111195;
+      final endX =
+          (end.longitude - position.longitude) * longitudeScale * 111195;
+      final endY = (end.latitude - position.latitude) * 111195;
       final segmentX = endX - startX;
       final segmentY = endY - startY;
-      final segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
-      final projection = segmentLengthSquared == 0
+      final lengthSquared = segmentX * segmentX + segmentY * segmentY;
+      final projection = lengthSquared == 0
           ? 0.0
-          : ((-startX * segmentX - startY * segmentY) / segmentLengthSquared)
+          : ((-startX * segmentX - startY * segmentY) / lengthSquared)
               .clamp(0.0, 1.0);
-      final nearestX = startX + projection * segmentX;
-      final nearestY = startY + projection * segmentY;
-      final distance = math.sqrt(nearestX * nearestX + nearestY * nearestY);
-      if (distance < nearestDistance) nearestDistance = distance;
+      nearestDistance = math.min(
+        nearestDistance,
+        math.sqrt(
+          math.pow(startX + projection * segmentX, 2) +
+              math.pow(startY + projection * segmentY, 2),
+        ),
+      );
     }
     return nearestDistance;
   }
 
+  void _scheduleRouteRefresh() {
+    if (_isDisposed ||
+        _isMapDataLoading ||
+        _destination == null ||
+        !_hasCurrentLocation ||
+        _isNavigating ||
+        _hasSelectedRoute) {
+      return;
+    }
+    _routeRefreshTimer?.cancel();
+    _routeRefreshTimer = Timer(const Duration(milliseconds: 300), () {
+      unawaited(_loadRoutesForCurrentLocation());
+    });
+  }
+
+  Future<void> _loadRoutesForCurrentLocation() async {
+    if (_isDisposed ||
+        _isMapDataLoading ||
+        _destination == null ||
+        !_hasCurrentLocation ||
+        _isNavigating ||
+        _hasSelectedRoute) {
+      return;
+    }
+    final requestId = ++_routeRequestId;
+    _isRouteLoading = true;
+    _routeError = null;
+    notifyListeners();
+    try {
+      final routes = await _osmRoutingService.findRoutes(
+        origin: LatLng(_currentLat, _currentLng),
+        destination: _destination!,
+        safetyWeight: _alphaSafetyWeight,
+        avoidUnlit: _avoidUnlitAlleys,
+        prioritizeHavens: _preferClassAHavens,
+      );
+      if (_isDisposed || requestId != _routeRequestId) return;
+      _safeRoute = routes.safe;
+      _directRoute = routes.direct;
+      _routeError = null;
+    } catch (error, stackTrace) {
+      if (_isDisposed || requestId != _routeRequestId) return;
+      _safeRoute = null;
+      _directRoute = null;
+      _routeError = 'Unable to calculate routes from the OSM dataset: $error';
+      debugPrintStack(label: _routeError, stackTrace: stackTrace);
+    } finally {
+      if (!_isDisposed && requestId == _routeRequestId) {
+        _isRouteLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
   void _checkRouteDeviation() {
     if (!_isNavigating || !_hasSelectedRoute) return;
+    if (_destination != null &&
+        _distanceBetweenMeters(
+              LatLng(_currentLat, _currentLng),
+              _destination!,
+            ) <=
+            25) {
+      _isNavigating = false;
+      _hasReachedDestination = true;
+      _isOffTrack = false;
+      _showOffTrackModal = false;
+      _navigationInstruction = 'You have reached your destination.';
+      _buddyConsoleStatus = 'ARRIVED';
+      return;
+    }
+    _updateNavigationInstruction();
     final distance = _distanceFromRouteMeters(
       LatLng(_currentLat, _currentLng),
       _selectedRoutePoints,
@@ -329,13 +457,115 @@ class TelemetryProvider extends ChangeNotifier {
     }
   }
 
+  void _updateNavigationInstruction() {
+    final route = _selectedRoute;
+    if (route == null || route.points.length < 3) return;
+    final points = route.points;
+    var nearestIndex = 0;
+    var nearestDistance = double.infinity;
+    final current = LatLng(_currentLat, _currentLng);
+    for (var index = 0; index < points.length; index++) {
+      final distance = _distanceBetweenMeters(current, points[index]);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    }
+
+    var distanceAlongRoute = 0.0;
+    final cumulativeDistances = List<double>.filled(points.length, 0);
+    for (var index = 1; index < points.length; index++) {
+      distanceAlongRoute +=
+          _distanceBetweenMeters(points[index - 1], points[index]);
+      cumulativeDistances[index] = distanceAlongRoute;
+    }
+    final currentDistance = cumulativeDistances[nearestIndex];
+
+    for (var index = math.max(1, nearestIndex);
+        index < points.length - 1;
+        index++) {
+      final firstBearing = _bearingDegrees(points[index - 1], points[index]);
+      final secondBearing = _bearingDegrees(points[index], points[index + 1]);
+      final turn = ((secondBearing - firstBearing + 540) % 360) - 180;
+      if (turn.abs() < 45 || _lastAnnouncedTurnIndex == index) continue;
+      final metersToTurn = cumulativeDistances[index] - currentDistance;
+      if (metersToTurn < 0) continue;
+      if (metersToTurn <= 100) {
+        final direction = turn > 0 ? 'right' : 'left';
+        _navigationInstruction =
+            'In ${metersToTurn.round()} meters, turn $direction.';
+        _lastAnnouncedTurnIndex = index;
+      } else {
+        _navigationInstruction =
+            'Continue on your selected route to $destinationName.';
+      }
+      return;
+    }
+
+    _navigationInstruction = 'Continue toward $destinationName.';
+  }
+
+  static double _distanceBetweenMeters(LatLng first, LatLng second) {
+    const earthRadiusMeters = 6371000.0;
+    final firstLatitude = first.latitude * math.pi / 180;
+    final secondLatitude = second.latitude * math.pi / 180;
+    final latitudeDelta = (second.latitude - first.latitude) * math.pi / 180;
+    final longitudeDelta = (second.longitude - first.longitude) * math.pi / 180;
+    final haversine =
+        math.sin(latitudeDelta / 2) * math.sin(latitudeDelta / 2) +
+            math.cos(firstLatitude) *
+                math.cos(secondLatitude) *
+                math.sin(longitudeDelta / 2) *
+                math.sin(longitudeDelta / 2);
+    return 2 *
+        earthRadiusMeters *
+        math.atan2(math.sqrt(haversine), math.sqrt(1 - haversine));
+  }
+
+  static double _bearingDegrees(LatLng from, LatLng to) {
+    final latitude1 = from.latitude * math.pi / 180;
+    final latitude2 = to.latitude * math.pi / 180;
+    final longitudeDelta = (to.longitude - from.longitude) * math.pi / 180;
+    final y = math.sin(longitudeDelta) * math.cos(latitude2);
+    final x = math.cos(latitude1) * math.sin(latitude2) -
+        math.sin(latitude1) * math.cos(latitude2) * math.cos(longitudeDelta);
+    return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
+  }
+
+  void setDestination(LatLng destination, {required String name}) {
+    if (_isNavigating) return;
+    _destination = destination;
+    _destinationName = name;
+    _hasReachedDestination = false;
+    _isOffTrack = false;
+    _showOffTrackModal = false;
+    _showBackOnTrackBanner = false;
+    _selectedRouteIndex = 0;
+    _navigationInstruction = null;
+    _lastAnnouncedTurnIndex = null;
+    _hasSelectedRoute = false;
+    _selectedRoute = null;
+    _selectedRoutePoints = const [];
+    _safeRoute = null;
+    _directRoute = null;
+    _routeError = null;
+    _routeRequestId++;
+    _isRouteLoading = false;
+    _scheduleRouteRefresh();
+    notifyListeners();
+  }
+
   void selectRoute(int index) {
-    if (_isNavigating || _isFetchingApi || (index != 0 && index != 1)) return;
+    if (_isNavigating) return;
+    final route = switch (index) {
+      0 => _safeRoute,
+      1 => _directRoute,
+      _ => null,
+    };
+    if (route == null) return;
     _selectedRouteIndex = index;
-    _selectedRoutePoints = _buildRoutePoints(
-      index,
-      LatLng(_currentLat, _currentLng),
-    );
+    _selectedRoute = route;
+    _selectedRoutePoints = route.points;
     _hasSelectedRoute = true;
     _showOffTrackModal = false;
     _showBackOnTrackBanner = false;
@@ -418,11 +648,13 @@ class TelemetryProvider extends ChangeNotifier {
 
   void setPreferClassAHavens(bool val) {
     _preferClassAHavens = val;
+    _scheduleRouteRefresh();
     notifyListeners();
   }
 
   void setAvoidUnlitAlleys(bool value) {
     _avoidUnlitAlleys = value;
+    _scheduleRouteRefresh();
     notifyListeners();
   }
 
@@ -466,6 +698,7 @@ class TelemetryProvider extends ChangeNotifier {
 
   void setAlphaWeight(double weight) {
     _alphaSafetyWeight = weight.clamp(0.0, 5.0);
+    _scheduleRouteRefresh();
     notifyListeners();
   }
 
@@ -514,14 +747,23 @@ class TelemetryProvider extends ChangeNotifier {
     _offTrackAlertDismissed = false;
     _hasSelectedRoute = false;
     _selectedRoutePoints = const [];
+    _selectedRoute = null;
+    _navigationInstruction = null;
+    _lastAnnouncedTurnIndex = null;
+    _hasReachedDestination = false;
     _backOnTrackTimer?.cancel();
     _buddyConsoleStatus = "MONITORING";
     notifyListeners();
   }
 
-  Future<void> triggerNavigationApiCall() async {
-    if (!_hasSelectedRoute) {
-      _locationError = 'Choose a route before starting navigation.';
+  void startNavigation() {
+    if (_destination == null) {
+      _routeError = 'Search for and select a destination before navigating.';
+      notifyListeners();
+      return;
+    }
+    if (!_hasSelectedRoute || _selectedRoute == null) {
+      _routeError = 'Choose an OSM route before starting navigation.';
       notifyListeners();
       return;
     }
@@ -531,34 +773,12 @@ class TelemetryProvider extends ChangeNotifier {
       notifyListeners();
       return;
     }
-
-    _isFetchingApi = true;
+    _isNavigating = true;
+    _hasReachedDestination = false;
+    _lastAnnouncedTurnIndex = null;
+    _navigationInstruction = 'Start walking toward $destinationName.';
+    _checkRouteDeviation();
     notifyListeners();
-
-    final stopwatch = Stopwatch()..start();
-    try {
-      await DirectionsService.fetchDirections(
-        alpha: _alphaSafetyWeight,
-        avoidUnlit: _avoidUnlitAlleys,
-        prioritizeHavens: _preferClassAHavens,
-        originLat: _currentLat, // Sends real GPS Lat
-        originLng: _currentLng, // Sends real GPS Lng
-        originLabel: _isSimulationMode
-            ? "Simulated User Location"
-            : "Current GPS Location",
-      );
-      _isNavigating = true;
-      _checkRouteDeviation();
-    } catch (error, stackTrace) {
-      _isNavigating = false;
-      debugPrint('Failed to fetch directions: $error');
-      debugPrintStack(stackTrace: stackTrace);
-    } finally {
-      stopwatch.stop();
-      _lastResponseMs = stopwatch.elapsedMilliseconds;
-      _isFetchingApi = false;
-      notifyListeners();
-    }
   }
 
   // --- LIVE B2B JSON PAYLOAD GENERATOR ---
@@ -570,9 +790,16 @@ class TelemetryProvider extends ChangeNotifier {
     }
 
     final Map<String, dynamic> payload = {
-      "status": "success",
+      "status": _destination == null
+          ? "destination_required"
+          : _safeRoute == null
+              ? _isRouteLoading
+                  ? "loading_route_data"
+                  : "route_unavailable"
+              : "success",
       "target_environment": _targetEnvironment,
       "navigation_mode": _isNavigating ? "ACTIVE_GUIDANCE" : "ROUTE_PREVIEW",
+      "route_source": "OpenStreetMap walking network GeoJSON",
       "request": {
         "origin": {
           "lat": _hasCurrentLocation || _isSimulationMode ? _currentLat : null,
@@ -584,30 +811,38 @@ class TelemetryProvider extends ChangeNotifier {
                   : "Waiting for GPS",
         },
         "destination": {
-          "lat": destinationLat,
-          "lng": destinationLng,
+          "lat": _destination?.latitude,
+          "lng": _destination?.longitude,
           "label": destinationName
         },
         "alpha_safety_weight":
             double.parse(_alphaSafetyWeight.toStringAsFixed(1)),
       },
-      "active_route":
-          _selectedRouteIndex == 0 ? "lumawalk_safe" : "direct_shortest",
+      "active_route": !_hasSelectedRoute
+          ? null
+          : _selectedRouteIndex == 0
+              ? "lumawalk_safe"
+              : "direct_shortest",
       "routes": {
-        "lumawalk_safe": {
-          "distance_meters": 2450.0,
-          "estimated_duration_sec": 1740,
-          "safety_score_avg": double.parse((0.78 + (_alphaSafetyWeight * 0.03))
-              .clamp(0.0, 0.98)
-              .toStringAsFixed(2)),
-        },
-        "direct_shortest": {
-          "distance_meters": 2140.0,
-          "estimated_duration_sec": 1520,
-          "safety_score_avg": 0.52,
-        }
-      }
+        "lumawalk_safe": _routePayload(_safeRoute),
+        "direct_shortest": _routePayload(_directRoute),
+      },
+      if (_selectedRoute != null)
+        "selected_route_geometry": _selectedRoute!.points
+            .map((point) => {"lat": point.latitude, "lng": point.longitude})
+            .toList(growable: false),
     };
     return encoder.convert(payload);
+  }
+
+  Map<String, dynamic> _routePayload(OsmRoute? route) {
+    if (route == null) return {"available": false};
+    return {
+      "available": true,
+      "distance_meters": route.distanceMeters.round(),
+      "estimated_duration_sec": (route.distanceMeters / 1.2).round(),
+      "lighting_score": double.parse(route.lightingScore.toStringAsFixed(2)),
+      "nearby_haven_score": double.parse(route.havenScore.toStringAsFixed(2)),
+    };
   }
 }

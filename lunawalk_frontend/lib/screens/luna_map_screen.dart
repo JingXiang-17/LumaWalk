@@ -1,9 +1,14 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import '../providers/telemetry_provider.dart';
+import '../services/destination_search_service.dart';
 import '../theme/app_colors.dart';
 
 class LunaMapScreen extends StatefulWidget {
@@ -19,23 +24,154 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
 
   // Joystick Drag State
   Offset _joystickDelta = Offset.zero;
+  final TextEditingController _destinationController = TextEditingController();
+  final DestinationSearchService _destinationSearchService =
+      DestinationSearchService();
   bool _mapReady = false;
   bool _hasAutoFittedRoute = false;
+  bool _hasShownArrivalDialog = false;
+  bool _isSearchingDestinations = false;
+  String? _destinationSearchError;
+  List<DestinationSearchResult> _destinationSuggestions = const [];
   LatLng? _lastMapCenter;
+  final FlutterTts _speech = FlutterTts();
+  String? _lastSpokenInstruction;
 
   @override
   void initState() {
     super.initState();
     Provider.of<TelemetryProvider>(context, listen: false)
-        .addListener(_followCurrentLocation);
+        .addListener(_handleTelemetryChanged);
   }
 
   @override
   void dispose() {
     Provider.of<TelemetryProvider>(context, listen: false)
-        .removeListener(_followCurrentLocation);
+        .removeListener(_handleTelemetryChanged);
+    unawaited(_speech.stop());
+    _destinationSearchService.dispose();
+    _destinationController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _handleTelemetryChanged() {
+    final telemetry = Provider.of<TelemetryProvider>(context, listen: false);
+    _followCurrentLocation();
+    if (!telemetry.hasReachedDestination) {
+      _hasShownArrivalDialog = false;
+    } else if (!_hasShownArrivalDialog) {
+      _hasShownArrivalDialog = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showDestinationReachedDialog();
+      });
+    }
+
+    if (!telemetry.isNavigating && !telemetry.hasReachedDestination) {
+      _lastSpokenInstruction = null;
+    } else {
+      final instruction = telemetry.navigationInstruction;
+      if (instruction != null && instruction != _lastSpokenInstruction) {
+        _lastSpokenInstruction = instruction;
+        unawaited(_speakInstruction(instruction));
+      }
+    }
+  }
+
+  Future<void> _speakInstruction(String instruction) async {
+    try {
+      await _speech.setLanguage('en-US');
+      await _speech.speak(instruction);
+    } catch (error, stackTrace) {
+      debugPrint('Could not play navigation instruction: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  void _showDestinationReachedDialog() {
+    final telemetry = Provider.of<TelemetryProvider>(context, listen: false);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.inputBackground,
+        icon: const Icon(Icons.check_circle, color: AppColors.routeSafe, size: 44),
+        title: const Text(
+          'You have reached your destination!',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppColors.textMain),
+        ),
+        content: Text(
+          'You have arrived at ${telemetry.destinationName}.',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              _destinationController.clear();
+            },
+            child: const Text('Search another destination'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _searchDestinations() async {
+    final query = _destinationController.text.trim();
+    if (query.isEmpty) {
+      setState(() {
+        _destinationSearchError = 'Enter a place or address to search.';
+        _destinationSuggestions = const [];
+      });
+      return;
+    }
+
+    setState(() {
+      _isSearchingDestinations = true;
+      _destinationSearchError = null;
+      _destinationSuggestions = const [];
+    });
+    try {
+      final results = await _destinationSearchService.search(query);
+      if (!mounted) return;
+      setState(() {
+        _destinationSuggestions = results;
+        if (results.isEmpty) {
+          _destinationSearchError =
+              'No destinations found. Try a nearby place or address.';
+        }
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Destination search failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _destinationSearchError =
+            'Could not search destinations. Check your internet connection and try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isSearchingDestinations = false);
+      }
+    }
+  }
+
+  void _selectDestination(DestinationSearchResult result,
+      TelemetryProvider telemetry) {
+    telemetry.setDestination(result.point, name: result.name);
+    _destinationController.text = result.name;
+    setState(() {
+      _destinationSuggestions = const [];
+      _destinationSearchError = null;
+      _hasAutoFittedRoute = false;
+    });
   }
 
   void _followCurrentLocation() {
@@ -50,16 +186,20 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _mapReady) {
         if (!_hasAutoFittedRoute) {
-          _mapController.fitCamera(
-            CameraFit.coordinates(
-              coordinates: [
-                position,
-                LatLng(telemetry.destinationLat, telemetry.destinationLng),
-              ],
-              padding: const EdgeInsets.fromLTRB(60, 110, 60, 180),
-              maxZoom: 15.8,
-            ),
-          );
+          if (telemetry.hasDestination) {
+            _mapController.fitCamera(
+              CameraFit.coordinates(
+                coordinates: [
+                  position,
+                  LatLng(telemetry.destinationLat, telemetry.destinationLng),
+                ],
+                padding: const EdgeInsets.fromLTRB(60, 110, 60, 180),
+                maxZoom: 15.8,
+              ),
+            );
+          } else {
+            _mapController.move(position, 15.8);
+          }
           _hasAutoFittedRoute = true;
         } else {
           _mapController.move(position, _mapController.camera.zoom);
@@ -158,23 +298,49 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                         TileLayer(
                           urlTemplate:
                               'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                          userAgentPackageName: 'com.lunawalk.app',
+                          userAgentPackageName: 'com.lumawalk.app',
+                        ),
+                        const SimpleAttributionWidget(
+                          source: Text('OpenStreetMap contributors'),
                         ),
 
                         // Polylines
                         PolylineLayer(
-                          polylines: telemetry.hasCurrentLocation ||
-                                  telemetry.isSimulationMode
-                              ? [
-                                  Polyline(
-                                    points: telemetry.routePoints,
-                                    strokeWidth: 5,
-                                    color: telemetry.selectedRouteIndex == 0
-                                        ? AppColors.routeSafe
-                                        : AppColors.routeUnsafe,
-                                  ),
-                                ]
-                              : const [],
+                          polylines: [
+                            if ((!telemetry.isNavigating ||
+                                    telemetry.selectedRouteIndex == 1) &&
+                                telemetry.directRoute != null)
+                              Polyline(
+                                points: telemetry.directRoute!.points,
+                                strokeWidth: telemetry.hasSelectedRoute &&
+                                        telemetry.selectedRouteIndex == 1
+                                    ? 5
+                                    : 3,
+                                color: AppColors.routeUnsafe.withOpacity(
+                                  telemetry.hasSelectedRoute &&
+                                          telemetry.selectedRouteIndex == 1
+                                      ? 0.95
+                                      : 0.45,
+                                ),
+                              ),
+                            if ((!telemetry.isNavigating ||
+                                    telemetry.selectedRouteIndex == 0) &&
+                                telemetry.safeRoute != null)
+                              Polyline(
+                                points: telemetry.safeRoute!.points,
+                                strokeWidth: telemetry.hasSelectedRoute &&
+                                        telemetry.selectedRouteIndex == 0
+                                    ? 5
+                                    : 3,
+                                color: AppColors.routeSafe.withOpacity(
+                                  telemetry.isNavigating ||
+                                          (telemetry.hasSelectedRoute &&
+                                              telemetry.selectedRouteIndex == 0)
+                                      ? 0.95
+                                      : 0.55,
+                                ),
+                              ),
+                          ],
                         ),
 
                         // Map Markers
@@ -207,15 +373,27 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                       ),
                                     ],
                                   ),
-                                  child: ClipOval(
-                                    child: Image.asset(
-                                      'assets/images/logo.png',
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
+                                  child: telemetry.isSimulationMode
+                                      ? ClipOval(
+                                          child: Image.asset(
+                                            'assets/images/logo.png',
+                                            fit: BoxFit.cover,
+                                          ),
+                                        )
+                                      : Transform.rotate(
+                                          angle: telemetry.currentHeading *
+                                              math.pi /
+                                              180,
+                                          child: const Icon(
+                                            Icons.navigation,
+                                            color: AppColors.primaryGold,
+                                            size: 28,
+                                          ),
+                                        ),
                                 ),
                               ),
-                            Marker(
+                            if (telemetry.hasDestination)
+                              Marker(
                               point: LatLng(
                                 telemetry.destinationLat,
                                 telemetry.destinationLng,
@@ -225,6 +403,33 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                               child: const Icon(Icons.location_on,
                                   color: Colors.redAccent, size: 32),
                             ),
+                            for (final haven in telemetry.nearbySafeHavens)
+                              Marker(
+                                point: haven.point,
+                                width: 28,
+                                height: 28,
+                                child: Tooltip(
+                                  message:
+                                      'OSM safe haven • Class ${haven.classification}',
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: haven.classification == 'A'
+                                          ? Colors.amber
+                                          : Colors.blueAccent,
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.shield,
+                                      color: Colors.white,
+                                      size: 17,
+                                    ),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ],
@@ -290,34 +495,119 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                             border: Border.all(
                                 color: AppColors.primaryGold.withOpacity(0.4)),
                           ),
-                          child: Row(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.school,
-                                  color: AppColors.primaryGold),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Text(
-                                      'Destination',
-                                      style: TextStyle(
-                                        color: AppColors.textSecondary,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                    Text(
-                                      telemetry.destinationName,
+                              Row(
+                                children: [
+                                  const Icon(Icons.search,
+                                      color: AppColors.primaryGold),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _destinationController,
+                                      textInputAction: TextInputAction.search,
+                                      onSubmitted: (_) =>
+                                          _searchDestinations(),
                                       style: const TextStyle(
                                         color: AppColors.textMain,
                                         fontSize: 14,
-                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      decoration: InputDecoration(
+                                        hintText: telemetry.hasDestination
+                                            ? telemetry.destinationName
+                                            : 'Where do you want to go?',
+                                        hintStyle: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 13,
+                                        ),
+                                        border: InputBorder.none,
+                                        isDense: true,
                                       ),
                                     ),
-                                  ],
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Search destination',
+                                    onPressed: _isSearchingDestinations
+                                        ? null
+                                        : _searchDestinations,
+                                    icon: _isSearchingDestinations
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: AppColors.primaryGold,
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.search,
+                                            color: AppColors.primaryGold,
+                                          ),
+                                  ),
+                                ],
+                              ),
+                              const Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'OpenStreetMap search • walking routes currently cover Petaling Jaya',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 10,
+                                  ),
                                 ),
                               ),
+                              if (_destinationSearchError != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      _destinationSearchError!,
+                                      style: const TextStyle(
+                                        color: Colors.redAccent,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              if (_destinationSuggestions.isNotEmpty)
+                                ConstrainedBox(
+                                  constraints:
+                                      const BoxConstraints(maxHeight: 190),
+                                  child: ListView.separated(
+                                    shrinkWrap: true,
+                                    padding: EdgeInsets.zero,
+                                    itemCount:
+                                        _destinationSuggestions.length,
+                                    separatorBuilder: (_, __) =>
+                                        const Divider(height: 1),
+                                    itemBuilder: (context, index) {
+                                      final result =
+                                          _destinationSuggestions[index];
+                                      return ListTile(
+                                        dense: true,
+                                        leading: const Icon(
+                                          Icons.location_on_outlined,
+                                          color: AppColors.primaryGold,
+                                        ),
+                                        title: Text(
+                                          result.name,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: AppColors.textMain,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        onTap: () => _selectDestination(
+                                          result,
+                                          telemetry,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
                               if (telemetry.isLocating)
                                 const SizedBox(
                                   width: 18,
@@ -389,6 +679,18 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                           fontSize: 12),
                                       overflow: TextOverflow.ellipsis,
                                     ),
+                                    if (telemetry.navigationInstruction != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          telemetry.navigationInstruction!,
+                                          style: const TextStyle(
+                                            color: AppColors.primaryGold,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
@@ -743,7 +1045,7 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                       ),
                                       const SizedBox(height: 6),
                                       const Text(
-                                        'Choose a route. Your choice stays fixed during the walk.',
+                                        'Choose a destination on the map, then select a route. Your route stays fixed during the walk.',
                                         style: TextStyle(
                                           color: AppColors.textSecondary,
                                           fontSize: 11,
@@ -755,14 +1057,24 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                           Expanded(
                                             child: _RouteChoiceButton(
                                               title: 'Safe',
-                                              subtitle: 'Safety simulation',
+                                              subtitle: telemetry.safeRoute ==
+                                                      null
+                                                  ? !telemetry.hasDestination
+                                                      ? 'Choose destination first'
+                                                      : (telemetry.isRouteLoading ||
+                                                          telemetry
+                                                              .isMapDataLoading
+                                                      ? 'Loading OSM data…'
+                                                      : 'Unavailable')
+                                                  : '${(telemetry.safeRoute!.distanceMeters / 1000).toStringAsFixed(1)} km • ${(telemetry.safeRoute!.lightingScore * 100).round()}% lit',
                                               selected: telemetry
                                                       .hasSelectedRoute &&
                                                   telemetry
                                                           .selectedRouteIndex ==
                                                       0,
                                               color: AppColors.routeSafe,
-                                              onTap: !telemetry.isFetchingApi &&
+                                              onTap: telemetry.safeRoute !=
+                                                          null &&
                                                       (telemetry
                                                               .hasCurrentLocation ||
                                                           telemetry
@@ -776,14 +1088,24 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                           Expanded(
                                             child: _RouteChoiceButton(
                                               title: 'Direct',
-                                              subtitle: 'Direct simulation',
+                                              subtitle: telemetry.directRoute ==
+                                                      null
+                                                  ? !telemetry.hasDestination
+                                                      ? 'Choose destination first'
+                                                      : (telemetry.isRouteLoading ||
+                                                          telemetry
+                                                              .isMapDataLoading
+                                                      ? 'Loading OSM data…'
+                                                      : 'Unavailable')
+                                                  : '${(telemetry.directRoute!.distanceMeters / 1000).toStringAsFixed(1)} km • ${(telemetry.directRoute!.lightingScore * 100).round()}% lit',
                                               selected: telemetry
                                                       .hasSelectedRoute &&
                                                   telemetry
                                                           .selectedRouteIndex ==
                                                       1,
                                               color: AppColors.routeUnsafe,
-                                              onTap: !telemetry.isFetchingApi &&
+                                              onTap: telemetry.directRoute !=
+                                                          null &&
                                                       (telemetry
                                                               .hasCurrentLocation ||
                                                           telemetry
@@ -807,6 +1129,18 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                           ),
                                         ),
                                       ],
+                                      if (telemetry.routeError != null) ...[
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          telemetry.routeError!,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.redAccent,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ],
                                       const SizedBox(height: 8),
                                       SizedBox(
                                         width: double.infinity,
@@ -821,31 +1155,19 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                                   BorderRadius.circular(22),
                                             ),
                                           ),
-                                          onPressed: telemetry.isFetchingApi ||
-                                                  !telemetry.hasSelectedRoute
+                                          onPressed: !telemetry.hasDestination ||
+                                                  !telemetry.hasSelectedRoute ||
+                                                  telemetry.routePoints.isEmpty
                                               ? null
-                                              : () async {
-                                                  await telemetry
-                                                      .triggerNavigationApiCall();
-                                                },
-                                          child: telemetry.isFetchingApi
-                                              ? const SizedBox(
-                                                  width: 20,
-                                                  height: 20,
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    color: Colors.black,
-                                                  ),
-                                                )
-                                              : const Text(
-                                                  "Start Navigation",
-                                                  style: TextStyle(
-                                                    color: Colors.black,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 14,
-                                                  ),
-                                                ),
+                                              : telemetry.startNavigation,
+                                          child: const Text(
+                                            "Start Navigation",
+                                            style: TextStyle(
+                                              color: Colors.black,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ],

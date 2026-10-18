@@ -14,18 +14,18 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => TelemetryProvider(),
-      child: const LunaWalkDemo(),
+      child: const LumaWalkDemo(),
     );
   }
 }
 
-class LunaWalkDemo extends StatelessWidget {
-  const LunaWalkDemo({super.key});
+class LumaWalkDemo extends StatelessWidget {
+  const LumaWalkDemo({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'LunaWalk Web Demo',
+      title: 'LumaWalk Web Demo',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(fontFamily: 'Roboto'),
       home: const SplitDashboard(),

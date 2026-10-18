@@ -11,6 +11,24 @@ class SplitDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final telemetry = Provider.of<TelemetryProvider>(context);
+    final routeStatus = telemetry.isSosActive
+        ? "STATUS: EMERGENCY ALERT (CRITICAL)"
+        : telemetry.isNavigating
+            ? telemetry.isOffTrack
+                ? "NAVIGATION: OFF ROUTE"
+                : "NAVIGATION: ACTIVE"
+            : telemetry.isMapDataLoading || telemetry.isRouteLoading
+                ? "OSM DATA: LOADING"
+                : telemetry.safeRoute != null
+                    ? "OSM ROUTES: READY"
+                    : "OSM DATA: UNAVAILABLE";
+    final routeStatusColor = telemetry.isSosActive || telemetry.isOffTrack
+        ? Colors.red
+        : telemetry.isMapDataLoading ||
+                telemetry.isRouteLoading ||
+                telemetry.safeRoute == null
+            ? Colors.orange
+            : Colors.green;
 
     final mobilePanel = Container(
       width: 400,
@@ -41,7 +59,7 @@ class SplitDashboard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        "LunaWalk B2B Developer Telemetry",
+                        "LumaWalk B2B Developer Telemetry",
                         style: TextStyle(
                           color: AppColors.primaryGold,
                           fontSize: 20,
@@ -52,7 +70,7 @@ class SplitDashboard extends StatelessWidget {
                       Text(
                         telemetry.isSosActive
                             ? "POST /v1/telemetry/sos-alert • Critical Broadcast Engine"
-                            : "POST /v1/directions • Mock Route Preview",
+                            : "OpenStreetMap walking network • GeoJSON route data",
                         style: TextStyle(
                           color: telemetry.isSosActive
                               ? Colors.redAccent
@@ -88,20 +106,22 @@ class SplitDashboard extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: telemetry.isSosActive
                             ? Colors.red.withOpacity(0.2)
-                            : Colors.green.withOpacity(0.2),
+                            : routeStatusColor.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
                           color:
-                              telemetry.isSosActive ? Colors.red : Colors.green,
+                              telemetry.isSosActive
+                                  ? Colors.red
+                                  : routeStatusColor,
                         ),
                       ),
                       child: Text(
-                        telemetry.isSosActive
-                            ? "STATUS: EMERGENCY ALERT (CRITICAL)"
-                            : "STATUS: 200 OK (${telemetry.lastResponseMs}ms)",
+                        routeStatus,
                         style: TextStyle(
                           color:
-                              telemetry.isSosActive ? Colors.red : Colors.green,
+                              telemetry.isSosActive
+                                  ? Colors.red
+                                  : routeStatusColor,
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                         ),

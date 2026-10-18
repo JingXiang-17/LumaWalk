@@ -1,17 +1,20 @@
-# lunawalk_frontend
+# LumaWalk
 
-A new Flutter project.
+LumaWalk is a safety-aware walking navigation demo. It calculates Safe and
+Direct walking routes from the user's current or simulated location using the
+bundled OpenStreetMap GeoJSON dataset.
 
-## Getting Started
+## Using the map
 
-This project is a starting point for a Flutter application.
+1. Allow location access or enable simulation mode.
+2. Type a place or address in the destination search box and choose a result.
+3. Select the Safe or Direct route, then start navigation.
+4. Follow the map and spoken turn instructions. The selected route remains
+   fixed during navigation.
+5. At the destination, confirm arrival or choose another map point.
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Destination search uses OpenStreetMap Nominatim. Route data is bundled in
+`assets/mock_data/pj_edges.geojson`; safe-haven markers are loaded from
+`assets/mock_data/real_havens_petaling_jaya.geojson`. The bundled walking
+network currently covers Petaling Jaya. The map uses OpenStreetMap tiles and
+displays contributor attribution.
