@@ -2,14 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart'; // NEW IMPORT
+import 'package:geolocator/geolocator.dart'; 
 import 'package:latlong2/latlong.dart';
-import '../services/osm_routing_service.dart';
+import 'package:http/http.dart' as http; 
+import '../services/safe_haven_service.dart';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class TelemetryProvider extends ChangeNotifier {
   static const double _simulationStartLat = 3.1180;
   static const double _simulationStartLng = 101.6230;
-  final OsmRoutingService _osmRoutingService;
+  final SafeHavenService _safeHavenService = SafeHavenService();
 
   // 1. User Profile & Preferences
   String _userName = "Luma Walker";
@@ -54,9 +57,9 @@ class TelemetryProvider extends ChangeNotifier {
   bool _isRouteLoading = false;
   String? _routeError;
   List<OsmSafeHaven> _safeHavens = const [];
-  OsmRoute? _safeRoute;
-  OsmRoute? _directRoute;
-  OsmRoute? _selectedRoute;
+  BackendRoute? _safeRoute;
+  BackendRoute? _directRoute;
+  BackendRoute? _selectedRoute;
   LatLng? _destination;
   String? _destinationName;
   bool _hasReachedDestination = false;
@@ -93,25 +96,24 @@ class TelemetryProvider extends ChangeNotifier {
   int _areYouOkCountdown = 19;
   Timer? _modalTimer;
 
-  TelemetryProvider({OsmRoutingService? osmRoutingService})
-      : _osmRoutingService = osmRoutingService ?? OsmRoutingService() {
+  final http.Client _client;
+
+  TelemetryProvider({http.Client? client}) : _client = client ?? http.Client() {
     unawaited(_loadOsmData());
     unawaited(refreshCurrentLocation());
   }
 
   Future<void> _loadOsmData() async {
     try {
-      final safeHavens = await _osmRoutingService.loadSafeHavens();
+      final safeHavens = await _safeHavenService.loadSafeHavens();
       if (_isDisposed) return;
       _safeHavens = safeHavens;
       _isMapDataLoading = false;
       _routeError = null;
       _scheduleRouteRefresh();
-    } catch (error, stackTrace) {
-      if (_isDisposed) return;
+    } catch (error) {
       _isMapDataLoading = false;
-      _routeError = 'Could not load the OSM GeoJSON dataset: $error';
-      debugPrintStack(label: _routeError, stackTrace: stackTrace);
+      _routeError = 'Could not load Safe Havens: $error';
     } finally {
       if (!_isDisposed) notifyListeners();
     }
@@ -227,8 +229,8 @@ class TelemetryProvider extends ChangeNotifier {
   bool get isMapDataLoading => _isMapDataLoading;
   bool get isRouteLoading => _isRouteLoading;
   String? get routeError => _routeError;
-  OsmRoute? get safeRoute => _safeRoute;
-  OsmRoute? get directRoute => _directRoute;
+  BackendRoute? get safeRoute => _safeRoute;
+  BackendRoute? get directRoute => _directRoute;
   List<LatLng> get routePoints =>
       _selectedRoute?.points ??
       (_selectedRouteIndex == 0 ? _safeRoute?.points : _directRoute?.points) ??
@@ -374,36 +376,66 @@ class TelemetryProvider extends ChangeNotifier {
   }
 
   Future<void> _loadRoutesForCurrentLocation() async {
-    if (_isDisposed ||
-        _isMapDataLoading ||
-        _destination == null ||
-        !_hasCurrentLocation ||
-        _isNavigating ||
-        _hasSelectedRoute) {
-      return;
-    }
+    if (_isDisposed || _isMapDataLoading || _destination == null || !_hasCurrentLocation || _isNavigating || _hasSelectedRoute) return;
+    
     final requestId = ++_routeRequestId;
     _isRouteLoading = true;
     _routeError = null;
     notifyListeners();
+    
     try {
-      final routes = await _osmRoutingService.findRoutes(
-        origin: LatLng(_currentLat, _currentLng),
-        destination: _destination!,
-        safetyWeight: _alphaSafetyWeight,
-        avoidUnlit: _avoidUnlitAlleys,
-        prioritizeHavens: _preferClassAHavens,
+      // NOTE: 10.0.2.2 is required for Android Emulators to hit localhost on your machine
+      String baseUrl;
+      
+      if (kIsWeb) {
+        baseUrl = 'http://localhost:8000';
+      } else if (Platform.isAndroid) {
+        baseUrl = 'http://10.0.2.2:8000'; // Android Emulator
+      } else {
+        baseUrl = 'http://localhost:8000'; // iOS Simulator, macOS, Windows
+      }
+
+      // If testing on a physical phone, manually override here with your Wi-Fi IP:
+      // baseUrl = 'http://192.168.1.X:8000'; 
+
+      final url = Uri.parse('$baseUrl/api/v1/route/');
+      
+      final response = await _client.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "start_lat": _currentLat,
+          "start_lng": _currentLng,
+          "end_lat": _destination!.latitude,
+          "end_lng": _destination!.longitude,
+        }),
       );
+
       if (_isDisposed || requestId != _routeRequestId) return;
-      _safeRoute = routes.safe;
-      _directRoute = routes.direct;
-      _routeError = null;
-    } catch (error, stackTrace) {
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        // Map the backend JSON coordinates into LatLng objects for Flutter to draw
+        _safeRoute = BackendRoute(
+          points: (data['safe_route_coords'] as List).map((c) => LatLng(c[0], c[1])).toList(),
+          distanceMeters: data['safe_distance'].toDouble(),
+          lightingScore: data['percentage_lit'] / 100.0,
+          havenScore: 0.9, 
+        );
+        
+        _directRoute = BackendRoute(
+          points: (data['direct_route_coords'] as List).map((c) => LatLng(c[0], c[1])).toList(),
+          distanceMeters: data['direct_distance'].toDouble(),
+          lightingScore: 0.3,
+          havenScore: 0.1,
+        );
+      } else {
+        _routeError = 'Backend returned error: ${response.statusCode}';
+      }
+    } catch (error) {
       if (_isDisposed || requestId != _routeRequestId) return;
-      _safeRoute = null;
-      _directRoute = null;
-      _routeError = 'Unable to calculate routes from the OSM dataset: $error';
-      debugPrintStack(label: _routeError, stackTrace: stackTrace);
+      _routeError = 'Failed to connect to FastAPI backend: $error';
     } finally {
       if (!_isDisposed && requestId == _routeRequestId) {
         _isRouteLoading = false;
@@ -835,7 +867,7 @@ class TelemetryProvider extends ChangeNotifier {
     return encoder.convert(payload);
   }
 
-  Map<String, dynamic> _routePayload(OsmRoute? route) {
+  Map<String, dynamic> _routePayload(BackendRoute? route) {
     if (route == null) return {"available": false};
     return {
       "available": true,

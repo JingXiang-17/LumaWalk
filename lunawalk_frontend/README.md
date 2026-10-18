@@ -1,8 +1,8 @@
 # LumaWalk
 
-LumaWalk is a safety-aware walking navigation demo. It calculates Safe and
-Direct walking routes from the user's current or simulated location using the
-bundled OpenStreetMap GeoJSON dataset.
+LumaWalk is a safety-aware walking navigation demo. It requests Safe and Direct
+walking routes from the FastAPI backend using the user's current or simulated
+location.
 
 ## Using the map
 
@@ -13,8 +13,7 @@ bundled OpenStreetMap GeoJSON dataset.
    fixed during navigation.
 5. At the destination, confirm arrival or choose another map point.
 
-Destination search uses OpenStreetMap Nominatim. Route data is bundled in
-`assets/mock_data/pj_edges.geojson`; safe-haven markers are loaded from
-`assets/mock_data/real_havens_petaling_jaya.geojson`. The bundled walking
-network currently covers Petaling Jaya. The map uses OpenStreetMap tiles and
-displays contributor attribution.
+Destination search uses OpenStreetMap Nominatim. Safe-haven markers are loaded
+from `assets/mock_data/real_havens_petaling_jaya.geojson`. Route data comes from
+the FastAPI backend. The map uses OpenStreetMap tiles and displays contributor
+attribution.

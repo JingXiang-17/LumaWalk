@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:lunawalk_frontend/providers/telemetry_provider.dart';
 
@@ -17,10 +20,34 @@ void main() {
         .setMockMethodCallHandler(locationChannel, null);
   });
 
-  test('keeps a selected route fixed and alerts when simulation strays',
-      () async {
-    final telemetry = TelemetryProvider();
+  test('keeps a selected route fixed and alerts when simulation strays', () async {
+    
+    // 1. Create a mock client that fakes Member 2's backend response
+    final mockClient = MockClient((request) async {
+      final dummyJsonResponse = jsonEncode({
+        "safe_route_coords": [
+          [3.1180, 101.6230],
+          [3.1200, 101.6300],
+          [3.1279, 101.6501]
+        ],
+        "safe_distance": 2450.0,
+        "direct_route_coords": [
+          [3.1180, 101.6230],
+          [3.1279, 101.6501]
+        ],
+        "direct_distance": 2140.0,
+        "percentage_lit": 86.0,
+        "detour_time_seconds": 310
+      });
+      return http.Response(dummyJsonResponse, 200, headers: {
+        'content-type': 'application/json'
+      });
+    });
+
+    // 2. Inject the mock client into the provider
+    final telemetry = TelemetryProvider(client: mockClient);
     addTearDown(telemetry.dispose);
+    
     telemetry.setSimulationMode(true);
     telemetry.startNavigation();
     expect(telemetry.isNavigating, isFalse);
@@ -28,6 +55,7 @@ void main() {
       telemetry.routeError,
       'Search for and select a destination before navigating.',
     );
+    
     telemetry.setDestination(
       const LatLng(3.1279, 101.6501),
       name: 'UM FSKTM',
@@ -39,6 +67,7 @@ void main() {
         DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
+    
     expect(telemetry.routeError, isNull);
     expect(telemetry.safeRoute, isNotNull);
     expect(telemetry.directRoute, isNotNull);
@@ -87,6 +116,7 @@ void main() {
         DateTime.now().isBefore(rerouteDeadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
+    
     expect(telemetry.routeError, isNull);
     expect(telemetry.safeRoute, isNotNull);
     expect(telemetry.safeRoute!.points.last, alternateDestination);
