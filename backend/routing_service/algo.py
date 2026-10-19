@@ -1,10 +1,12 @@
 import networkx as nx
+import math
 
 route_graph = None
 
 def create_dummy_graph():
     G = nx.Graph()
-    G.add_nodes_from(range(1, 11))
+    for i in range(1, 11):
+        G.add_node(i, y=3.12 + (i*0.001), x=101.65 + (i*0.001))
     G.add_edge(1, 2, weight=50, is_lit=True, safety_score=0.9)
     G.add_edge(2, 3, weight=100, is_lit=False, safety_score=0.2)
     G.add_edge(1, 3, weight=120, is_lit=True, safety_score=0.8)
@@ -42,3 +44,21 @@ def find_safest_route(G, start_node, end_node):
         return nx.shortest_path(G, start_node, end_node, weight='weight'), direct_distance
         
     return safe_path, safe_distance
+
+def get_closest_node(G, lat, lon):
+    """Snaps raw GPS coordinates to the nearest valid graph node."""
+    closest_node = None
+    min_dist = float('inf')
+    
+    for node, data in G.nodes(data=True):
+        # Fallback to 0.0 if the node is missing coordinate data
+        node_lat = data.get('y', 0.0)
+        node_lon = data.get('x', 0.0)
+        
+        # Simple Euclidean distance for coordinate snapping
+        dist = math.hypot(node_lat - lat, node_lon - lon)
+        if dist < min_dist:
+            min_dist = dist
+            closest_node = node
+            
+    return closest_node
