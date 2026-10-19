@@ -1,19 +1,30 @@
+import os
 from fastapi import FastAPI
 from buddy_service.router import router as buddy_router
 
 # --- ADDED FOR ROUTING ENGINE (Imports & Memory Loading) ---
 from contextlib import asynccontextmanager
 import networkx as nx
+import osmnx as ox
 from routing_service.router import router as routing_router
 from routing_service import algo
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        algo.route_graph = nx.read_graphml("pj_network.graphml")
+        # 1. Get the absolute path of the folder containing main.py
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # 2. Build the exact path to the graphml file
+        graph_path = os.path.join(current_dir, "..", "data_pipeline", "output", "pj_network.graphml")
+        
+        # 3. Load the graph using OSMnx exactly as the pipeline instructed
+        edge_dtypes = {"w_light": float, "w_haven": float, "w_crowd": float, "w_hazard": float}
+        algo.route_graph = ox.load_graphml(graph_path, edge_dtypes=edge_dtypes)
         print("Success: Map data loaded into memory!")
     except FileNotFoundError:
-        print("Waiting for Member 1's file. Loading the 10-node dummy map instead.")
+        print(f"Failed to find file at: {graph_path}")
+        print("Loading the 10-node dummy map instead.")
         algo.route_graph = algo.create_dummy_graph() 
     yield 
     algo.route_graph.clear()

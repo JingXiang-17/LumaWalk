@@ -2,6 +2,13 @@
 
 # **Product Requirements Document (PRD)**
 
+> **Implementation status (2026-10):** This document includes the original
+> product vision and planned roadmap. The current demo uses a Petaling Jaya
+> GraphML graph loaded by NetworkX, FastAPI, Flutter Map, local safe-haven
+> GeoJSON, and in-memory session state. PostgreSQL/PostGIS, MapLibre,
+> authentication, crowdsourced reports, production dispatch, and multi-tenant
+> analytics remain planned rather than implemented.
+
 # **1\. Project Overview & Problem Statement**
 
 ## **Executive Summary**
@@ -27,8 +34,8 @@ Unlike generic consumer navigation apps (e.g., Google Maps) or standalone safety
 
 * **Detour:** safe route ≤ 125% of direct route length (enforced by stepped-alpha fallback).   
 * **Safety gain:** over 200 random origin-destination pairs in the pilot area, report mean lit-share and mean active-share of the safe vs direct route, mean detour %, and % of pairs where the cap forced a lower alpha. Use a paired test (Wilcoxon). "Lit" \= segments with W\_light ≥ 0.9. "Active" \= segments with W\_haven ≥ 0.5 (within 150 m of an open safe haven).   
-* **Virtual Buddy:** path-drift \>35 m detected within 30 s in simulated walks; false check-in prompts ≤ 5 per 100 simulated walks (with ±10 m GPS noise and random stops of 10 to 60 s).   
-* **Demo-scale latency:** /v1/directions p95 \< 2 s on the pilot-area graph. 
+* **Virtual Buddy (target):** path-drift \>35 m detected within 30 s in simulated walks; false check-in prompts ≤ 5 per 100 simulated walks. The current backend implementation uses a 50 m deviation threshold and 180-second stationary threshold.
+* **Demo-scale latency (target):** the current route endpoint is `/api/v1/route/`; latency benchmarking remains a validation task.
 
 ## **Theme Alignment (Hackathon Pillars)**
 
@@ -41,10 +48,10 @@ Unlike generic consumer navigation apps (e.g., Google Maps) or standalone safety
 Optimized for a 7-day rapid implementation sprint.
 
 * **Backend API Framework**: Python (FastAPI) \- For native async processing and scientific/spatial library integration.  
-* **Database & Spatial Engine**: PostgreSQL 16 \+ PostGIS 3.4 \- For spatial indexing (GIST) and topological queries.  
+* **Database & Spatial Engine (planned)**: PostgreSQL 16 \+ PostGIS 3.4 \- For future spatial indexing (GIST) and topological queries. The current demo uses GraphML loaded into NetworkX in memory.  
 * **Routing Graph Engine**: NetworkX (Python) \- Enables real-time dynamic edge-weight recalculations.  
 * **Frontend Framework**: Flutter \- For the dual-panel web demo.  
-* **Map Rendering Library**: MapLibre GL JS \- Open-source drop-in replacement for Mapbox without commercial token restrictions.
+* **Map Rendering Library**: Flutter Map with OpenStreetMap tiles in the current client. MapLibre GL JS remains an alternative for a future web-specific client.  
 
 ---
 
@@ -93,7 +100,7 @@ The engine calculates both the Direct Route (\$\\alpha=0\$) and the LumaWalk Saf
 
 ## **Core REST Endpoints**
 
-**POST /v1/directions** (Calculates dual routes and explainability metrics)
+**POST /api/v1/route/** (Implemented; calculates dual routes and route metrics)
 
 ```json
 {
@@ -110,7 +117,7 @@ The engine calculates both the Direct Route (\$\\alpha=0\$) and the LumaWalk Saf
 }
 ```
 
-**GET /v1/safe-havens/near** 
+**GET /v1/safe-havens/near** (Planned; the current frontend reads local GeoJSON markers)
 
 ```
 Queries nearest operational safe havens relative to a given point.
@@ -121,7 +128,7 @@ Query Parameters:
 - class (string, optional): Filter by CLASS_A, CLASS_B, CLASS_C 
 ```
 
-**POST /v1/reports/crowd**   
+**POST /v1/reports/crowd** (Planned; no crowd-report endpoint is currently implemented)  
 (Submits crowdsourced safety feedback (e.g., broken lights, active hazards).// Request Body )
 
 ```json
@@ -142,9 +149,9 @@ Errors follow RFC 9457 Problem Details standards, including `Retry-After` header
 
 ## **Virtual Buddy (Shadow Walk) Escalation State Machine**
 
-* **State 1 (Monitoring)**: User stays within 35m of the route.  
-* **State 2 (Deviation Detected)**: User deviates \>35m or speed drops to 0 for 3 consecutive pings. Backend sends a `WARNING` payload to the frontend.  
-* **State 3 (Client Check-In)**: Frontend displays an "Are you OK?" prompt with a 20-second countdown.  
+* **Target state machine**: User stays within 35m of the route, then receives a check-in prompt after deviation or a stationary period. This remains the product target.  
+* **Current backend behavior**: The implemented service starts an in-memory session, uses a 50m deviation threshold or 180 seconds between pings, returns `WARNING_DEVIATED` or `WARNING_STATIONARY`, and logs a simulated emergency dispatch in a background task.  
+* **Frontend demo behavior**: The Flutter app provides local simulation, SOS, hazard, and check-in flows; these are not yet connected to a production alert service.  
   * *If "I'm Safe" clicked:* Resolves to State 1\.  
   * *If 20s expires:* Moves to State 4\. Backend sends  `CRITICAL`  
 * **State 4 (Alert Dispatch)**: Backend retrieves the user's `trusted_contacts` record and dispatches an emergency Webhook/SMS with the exact location.
@@ -173,12 +180,12 @@ To prevent abuse, crowd reports use a bounded logistic decay function:
 
 ## **Two-Panel Split-Screen Layout**
 
-* **Left Panel (Interactive Map \- MapLibre)**: Displays Direct vs. Safe routes, heatmap toggles, and POIs.  
+* **Left Panel (Interactive Map \- Flutter Map)**: Displays Direct vs. Safe routes and local safe-haven POIs.  
 * **Right Panel (Live API JSON Inspector)**: Real-time request/response payloads, Alpha slider, and Time-of-Day simulator.
 
 ## **Safety Check-In & Trusted Contact Views**
 
-* **Safety Check-In Modal**: A high-contrast popup with a 20-second visual countdown ring and an "I am Safe" button.  
+* **Safety Check-In Modal (demo target)**: A high-contrast popup with a visual countdown ring and an "I am Safe" button. The current frontend flow is local simulation.  
 * **Trusted Contact View**: A mock secondary view showing what the emergency contact receives (a locked map with a pulsing red deviation indicator).
 
 ## **/\*B2B Township Insights Dashboard**

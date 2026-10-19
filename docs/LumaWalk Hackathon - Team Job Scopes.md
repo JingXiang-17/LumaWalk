@@ -1,75 +1,85 @@
-# **LumaWalk Hackathon \- Team Job Scopes & Workload Distribution**
+# LumaWalk Team Job Scopes
 
-# **Member 1: The Offline Data Pipeline (Data Engineering)**
+This document describes the current repository boundaries. The product
+requirements document contains the longer-term roadmap; this file describes
+what is actually present in the demo.
 
-**Job Scope:** Transforming messy, real-world OpenStreetMap (OSM) data into a clean, routable mathematical graph enriched with safety metadata (e.g., lighting, safe havens). Creates the static graph file consumed by the API.
+## Data Pipeline
 
-Tech Stack: Python, OSMnx, GeoPandas, Shapely, PostGIS (optional).
+**Location:** `data_pipeline/`
 
-## **Features & PRD Sections**
+The pipeline prepares the Petaling Jaya walking network and safety metadata.
+The scripts download OpenStreetMap data, apply lighting weights, calculate
+safe-haven proximity scores, and write GraphML, GeoJSON, and coverage-report
+artifacts to `data_pipeline/output/`.
 
-* **Features:** Ambient Safety Scoring, Safe Haven Routing.  
-* **PRD Sections:** Section 8 (Data Models & Database Schemas), Section 10 (Limitations & Project Risks), Section 11 (Demo Truthfulness).  
-* **Math & Calculations:** Responsible for topological graph construction and spatial buffering math (e.g., calculating 30-50 meter geometric radius polygons around Safe Havens).
+Key configuration lives in `data_pipeline/scripts/config.py`. The current
+pipeline uses a 300 m linear falloff for `w_haven` and neutral defaults for
+crowd and hazard weights. Rerunning the pipeline requires its source data and
+network access; inspect each script before running it on a clean machine.
 
-## **Do's and Don'ts**
+## Routing Backend
 
-* **DO** ensure the output is a single portable file (e.g., `campus_network.graphml`) for easy handoff.  
-* **DO** apply heuristic patching (Day 0 Patch) to simulate lighting data where OSM is sparse.  
-* **DON'T** build any APIs or web servers; focus strictly on offline data preparation and algorithmic spatial tagging.
+**Location:** `backend/routing_service/` and `backend/main.py`
 
-# **Member 2: The Routing Engine (API Lead)**
+The routing service validates the Petaling Jaya bounding box, snaps requested
+coordinates to the loaded graph, calculates a safety-aware route and a direct
+route, and returns distances, lit percentage, and detour time.
 
-**Job Scope:** Building the core mathematical pathfinding logic (cost functions handling safety parameters, detour bounds) and exposing it as a fast REST endpoint. You define the "API-as-a-Product" logic.
+The implemented endpoint is:
 
-Tech Stack: Python, FastAPI, NetworkX, Uvicorn, Pydantic.
+```text
+POST /api/v1/route/
+```
 
-## **Features & PRD Sections**
+The graph is loaded from `data_pipeline/output/pj_network.graphml` when the
+FastAPI application starts. If the file is unavailable, the backend uses a
+small dummy graph for development. Routing state is held in process memory.
 
-* **Features:** Explainable Safety Routing, B2B Township API.  
-* **PRD Sections:** Section 1 (Innovation Claim), Section 8 (Data Models \- Route Response Schema), Section 9 (7-Day Sprint \- Day 3: Routing Math).  
-* **Math & Calculations:** Responsible for the core pathfinding algorithms. This includes the Composite Safety Factor calculation (\$S(e)\$), the modified A\* cost function (\$C(e)\$), and the Maximum Detour Constraint logic (e.g., ensuring safe route length ≤ 125% of direct route).
+## Virtual Buddy Backend
 
-## **Do's and Don'ts**
+**Location:** `backend/buddy_service/`
 
-* **DO** start testing pathfinding logic immediately on a tiny 10-node dummy graph (Don't wait for Member 1's final data).  
-* **DO** structure responses to include explainable metrics (e.g., % lit, detour time).  
-* **DON'T** overcomplicate the database; memory-loading the GraphML on startup is perfectly fine for a sprint demo.
+The buddy service starts sessions, stores the active route polyline, calculates
+cross-track error using Shapely and Web Mercator projection, and accepts
+telemetry pings.
 
-# **Member 3: Virtual Buddy API (State & Telemetry)**
+Implemented endpoints:
 
-**Job Scope:** Building the real-time monitoring system, telemetry ingestion, state machines, spatial deviation triggers, and simulated emergency alerts. Treats the user as a moving coordinate dot.
+```text
+POST /api/v1/buddy/session/start
+POST /api/v1/buddy/telemetry/ping
+```
 
-Tech Stack: Python, FastAPI, Shapely (for cross-track distance).
+The current thresholds are 50 m for route deviation and 180 seconds between
+telemetry pings. Alerts are simulated by a server log; no production SMS or
+emergency webhook is connected.
 
-## **Features & PRD Sections**
+## Flutter Frontend
 
-* **Features:** Virtual Buddy, Active Route Monitoring.  
-* **PRD Sections:** Section 5 (Virtual Buddy API & Deviation Logic), Section 8 (Data Models \- Request Logs / PDPA Compliance), Section 11 (Demo Truthfulness \- Emergency Alert Dispatch).  
-* **Math & Calculations:** Responsible for spatial deviation math, specifically the cross-track error calculation (computing the perpendicular distance in meters between live GPS coordinates and the active route polyline).
+**Location:** `lunawalk_frontend/`
 
-## **Do's and Don'ts**
+The Flutter app provides the map and navigation demo. Current features include
+Nominatim destination search, OpenStreetMap tiles, direct and safe route
+selection, local safe-haven GeoJSON markers, navigation simulation, telemetry,
+insights, support, and settings screens.
 
-* **DO** lock in your JSON request/response schema with Member 4 on Hour 1\.  
-* **DO** use hardcoded route polylines to test cross-track deviation logic in isolation.  
-* **DON'T** tightly couple your code with Member 2's routing engine; keep this as an independent router/module.
+The frontend uses `flutter_map`, `latlong2`, Provider, `http`, Geolocator, and
+Flutter TTS. It calls the backend at `localhost:8000` on desktop/web and uses
+`10.0.2.2:8000` from an Android emulator.
 
-# **Member 4: Frontend Web/App Demo (Flutter Integration)**
+## Shared Contracts
 
-**Job Scope:** Building the split-screen dashboard using Flutter (compiling to web/desktop) to visualize the backend math. This includes rendering the map canvas on one side and a JSON/telemetry inspector on the other to prove the API works.
+**Location:** `docs/schemas.json`
 
-**Tech Stack:** Flutter, `flutter_map`, `latlong2`, `http`/`dio`, Provider/Riverpod.
+The JSON file documents the implemented FastAPI payloads. Routing response
+coordinates use `[latitude, longitude]`; buddy route and telemetry coordinates
+use `[longitude, latitude]`. Keep this distinction when changing either side
+of the integration.
 
-## **Features & PRD Sections**
+## Planned Work
 
-* **Features:** B2B Developer Dashboard, Visual Explainability.  
-* **PRD Sections:** Section 7 (Web App & Demo Interface Specifications), Section 9 (7-Day Sprint \- Day 6 Validation & Demo).  
-* **Math & Calculations:** Responsible for UI-side visualization math, such as interpolating coordinates for the 'Simulate Walk' marker animation.
-
-## **Do's and Don'ts**
-
-* **DO** use a dark map tile base (Nighttime Theme) so neon safe routes (Cyan) and unsafe routes (Crimson) visually pop.  
-* **DO** build the UI components with static, mock JSON files first before attempting live API integration.  
-* **DO** utilize AI for micro-components (like a 20s countdown modal), but assemble them into the widget tree yourself.  
-* **DON'T** get stuck perfecting UI styling if you are running out of time; prioritize the JSON inspector and map markers over aesthetics.
-
+PostGIS storage, MapLibre, authentication, crowd-report APIs, a safe-haven
+search endpoint, production alert dispatch, and multi-tenant B2B analytics are
+not part of the current implementation. Changes that add these capabilities
+should update the PRD, schemas, and root README together.

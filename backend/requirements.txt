@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 networkx
+osmnx
 pydantic
 shapely
 pyproj

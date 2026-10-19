@@ -1,76 +1,57 @@
 {
-  "POST_v1_directions": {
-    "description": "Calculates safe route vs direct route with explainability metrics.",
+  "POST /api/v1/route/": {
+    "description": "Calculates a safety-aware route and a direct route within the Petaling Jaya bounding box.",
     "request": {
-      "origin": {
-        "lat": 3.1209,
-        "lng": 101.6538
-      },
-      "destination": {
-        "lat": 3.1145,
-        "lng": 101.6582
-      }
+      "start_lat": 3.12,
+      "start_lng": 101.65,
+      "end_lat": 3.13,
+      "end_lng": 101.66
     },
     "response": {
-      "routes": {
-        "lumawalk_safe": {
-          "coordinates": [
-            [101.6538, 3.1209],
-            [101.6540, 3.1215],
-            [101.6552, 3.1228]
-          ],
-          "distance_meters": 1382.5,
-          "duration_seconds": 1040,
-          "lit_ratio": 0.85,
-          "safe_haven_count": 3,
-          "explainability": {
-            "safety_gain_relative_pct": "+47.1%",
-            "extra_distance_meters": 142.0,
-            "detour_pct": 11.4,
-            "key_factors": [
-              "85% well-lit corridor coverage vs 32% direct route",
-              "Passes 3 verified 24/7 safe havens"
-            ]
-          }
-        },
-        "direct_fastest": {
-          "coordinates": [
-            [101.6538, 3.1209],
-            [101.6539, 3.1210],
-            [101.6548, 3.1220]
-          ],
-          "distance_meters": 1240.5,
-          "duration_seconds": 930,
-          "lit_ratio": 0.32,
-          "safe_haven_count": 0
-        }
-      }
-    }
+      "safe_route_coords": [[3.12, 101.65], [3.125, 101.655]],
+      "direct_route_coords": [[3.12, 101.65], [3.13, 101.66]],
+      "safe_distance": 1382.5,
+      "direct_distance": 1240.5,
+      "percentage_lit": 85.0,
+      "detour_time_seconds": 102
+    },
+    "notes": [
+      "Route coordinate arrays are [latitude, longitude].",
+      "The implementation enforces the Petaling Jaya geofence.",
+      "The safe route falls back to the direct route when it exceeds 125 percent of direct distance."
+    ]
   },
-  "POST_v1_buddy_telemetry": {
-    "description": "Receives GPS pings and returns Virtual Buddy deviation state.",
+  "POST /api/v1/buddy/session/start": {
+    "description": "Starts an in-memory Virtual Buddy monitoring session.",
     "request": {
-      "route_id": "550e8400-e29b-41d4-a716-446655440000",
-      "current_location": {
-        "lat": 3.1180,
-        "lng": 101.6550
-      }
+      "user_id": "demo-user",
+      "route_polyline": [[101.65, 3.12], [101.66, 3.13]],
+      "human_contact_name": "Emergency Contact",
+      "human_contact_phone": "+60123456789"
     },
     "response": {
-      "status": "WARNING",
-      "cross_track_deviation_meters": 42.5,
-      "threshold_meters": 35.0,
-      "action_required": "trigger_20s_countdown"
-    }
+      "session_id": "sess_12345678",
+      "status": "SESSION_ACTIVE"
+    },
+    "notes": [
+      "Buddy route and telemetry coordinate arrays are [longitude, latitude].",
+      "Human contact fields are optional."
+    ]
   },
-  "Error_Response_RFC9457": {
-    "description": "Standardized machine-readable error format.",
+  "POST /api/v1/buddy/telemetry/ping": {
+    "description": "Updates a session position and returns its current safety status.",
+    "request": {
+      "session_id": "sess_12345678",
+      "current_position": [101.655, 3.125]
+    },
     "response": {
-      "type": "https://lumawalk.local/errors/out-of-bounds",
-      "title": "Routing Error",
-      "status": 400,
-      "detail": "The requested coordinates fall outside the supported pilot bounding box.",
-      "instance": "/v1/directions/req-123"
-    }
+      "status": "SAFE",
+      "cross_track_error_meters": 0.0
+    },
+    "notes": [
+      "Deviation above 50 meters produces WARNING_DEVIATED.",
+      "More than 180 seconds between pings produces WARNING_STATIONARY.",
+      "Emergency dispatch is currently simulated with a server log."
+    ]
   }
 }
