@@ -4,6 +4,29 @@ LumaWalk is a safety-aware walking navigation demo. It requests Safe and Direct
 walking routes from the FastAPI backend using the user's current or simulated
 location.
 
+## Running the frontend
+
+From the `lunawalk_frontend` directory, install the Flutter dependencies and
+launch the app in a supported device or browser:
+
+```powershell
+cd "c:\Documents\docs\Desktop\LumaWalk\LumaWalk\lunawalk_frontend"
+flutter pub get
+flutter devices
+flutter run -d chrome
+```
+
+You can replace `chrome` with another device ID shown by `flutter devices`, or
+run `flutter run` to select a target interactively. For a production web build:
+
+```powershell
+flutter build web
+```
+
+Start the FastAPI backend separately before requesting routes. It should be
+available at `http://localhost:8000`. When running on an Android emulator, the
+frontend uses `http://10.0.2.2:8000` to reach the backend on the host machine.
+
 ## Using the map
 
 1. Allow location access or enable simulation mode.
