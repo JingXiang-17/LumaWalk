@@ -10,7 +10,7 @@ from routing_service import algo
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        algo.route_graph = nx.read_graphml("pj_network.graphml")
+        algo.route_graph = nx.read_graphml("C:/Users/Austin Chen/SDP Township Hackathon 2026/LumaWalk/data_pipeline/output/pj_network.graphml")
         print("Success: Map data loaded into memory!")
     except FileNotFoundError:
         print("Waiting for Member 1's file. Loading the 10-node dummy map instead.")
