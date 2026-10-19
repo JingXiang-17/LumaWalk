@@ -408,6 +408,7 @@ class TelemetryProvider extends ChangeNotifier {
           "start_lng": _currentLng,
           "end_lat": _destination!.latitude,
           "end_lng": _destination!.longitude,
+          "alpha_safety_weight": _alphaSafetyWeight,
         }),
       );
 
