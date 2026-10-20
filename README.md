@@ -39,7 +39,7 @@ cache/                   Cached geocoding/search responses
 
 - Python 3.10 or newer
 - Flutter SDK 3.x or newer with a web or desktop device configured
-- Network access for OSM/Nominatim requests when using the data pipeline or
+- Network access for OSM/Nominatim requests in the data pipeline and Photon
 	destination search
 
 ## Quick Start
@@ -136,5 +136,5 @@ new machine.
 - Several frontend flows, including simulation time, SOS, hazard reporting,
 	and some dashboard metrics, are local demo behavior.
 - The API currently keeps sessions and the routing graph in process memory.
-- Nominatim and OSM tile usage must follow their service policies and include
-	attribution in the app.
+- Nominatim, Photon, and OSM tile usage must follow their service policies and
+	include attribution in the app.

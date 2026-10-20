@@ -27,12 +27,15 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
   final TextEditingController _destinationController = TextEditingController();
   final DestinationSearchService _destinationSearchService =
       DestinationSearchService();
+  Timer? _destinationSearchDebounce;
+  int _destinationSearchRequestId = 0;
   bool _mapReady = false;
   bool _hasAutoFittedRoute = false;
   bool _hasShownArrivalDialog = false;
   bool _isSearchingDestinations = false;
   String? _destinationSearchError;
   List<DestinationSearchResult> _destinationSuggestions = const [];
+  List<DestinationSearchResult> _destinationHistory = const [];
   LatLng? _lastMapCenter;
   final FlutterTts _speech = FlutterTts();
   String? _lastSpokenInstruction;
@@ -42,6 +45,7 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
     super.initState();
     Provider.of<TelemetryProvider>(context, listen: false)
         .addListener(_handleTelemetryChanged);
+    unawaited(_loadDestinationHistory());
   }
 
   @override
@@ -49,6 +53,7 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
     Provider.of<TelemetryProvider>(context, listen: false)
         .removeListener(_handleTelemetryChanged);
     unawaited(_speech.stop());
+    _destinationSearchDebounce?.cancel();
     _destinationSearchService.dispose();
     _destinationController.dispose();
     _focusNode.dispose();
@@ -95,7 +100,8 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.inputBackground,
-        icon: const Icon(Icons.check_circle, color: AppColors.routeSafe, size: 44),
+        icon: const Icon(Icons.check_circle,
+            color: AppColors.routeSafe, size: 44),
         title: const Text(
           'You have reached your destination!',
           textAlign: TextAlign.center,
@@ -123,12 +129,37 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
     );
   }
 
-  Future<void> _searchDestinations() async {
-    final query = _destinationController.text.trim();
-    if (query.isEmpty) {
+  void _handleDestinationQueryChanged(String query) {
+    _destinationSearchDebounce?.cancel();
+    final requestId = ++_destinationSearchRequestId;
+    setState(() {
+      _isSearchingDestinations = false;
+      _destinationSearchError = null;
+      _destinationSuggestions =
+          query.trim().isEmpty ? _destinationHistory : const [];
+    });
+
+    if (query.trim().isEmpty ||
+        query.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').length < 2) {
+      return;
+    }
+    _destinationSearchDebounce = Timer(
+      const Duration(milliseconds: 500),
+      () => _searchDestinations(query: query, requestId: requestId),
+    );
+  }
+
+  Future<void> _searchDestinations({
+    String? query,
+    int? requestId,
+  }) async {
+    final searchQuery = (query ?? _destinationController.text).trim();
+    if (requestId == null) _destinationSearchDebounce?.cancel();
+    final currentRequestId = requestId ?? ++_destinationSearchRequestId;
+    if (searchQuery.isEmpty) {
       setState(() {
-        _destinationSearchError = 'Enter a place or address to search.';
-        _destinationSuggestions = const [];
+        _destinationSearchError = null;
+        _destinationSuggestions = _destinationHistory;
       });
       return;
     }
@@ -139,8 +170,8 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
       _destinationSuggestions = const [];
     });
     try {
-      final results = await _destinationSearchService.search(query);
-      if (!mounted) return;
+      final results = await _destinationSearchService.search(searchQuery);
+      if (!mounted || currentRequestId != _destinationSearchRequestId) return;
       setState(() {
         _destinationSuggestions = results;
         if (results.isEmpty) {
@@ -151,20 +182,22 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
     } catch (error, stackTrace) {
       debugPrint('Destination search failed: $error');
       debugPrintStack(stackTrace: stackTrace);
-      if (!mounted) return;
+      if (!mounted || currentRequestId != _destinationSearchRequestId) return;
       setState(() {
         _destinationSearchError =
             'Could not search destinations. Check your internet connection and try again.';
       });
     } finally {
-      if (mounted) {
+      if (mounted && currentRequestId == _destinationSearchRequestId) {
         setState(() => _isSearchingDestinations = false);
       }
     }
   }
 
-  void _selectDestination(DestinationSearchResult result,
-      TelemetryProvider telemetry) {
+  void _selectDestination(
+      DestinationSearchResult result, TelemetryProvider telemetry) {
+    _destinationSearchDebounce?.cancel();
+    _destinationSearchRequestId++;
     telemetry.setDestination(result.point, name: result.name);
     _destinationController.text = result.name;
     setState(() {
@@ -172,6 +205,45 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
       _destinationSearchError = null;
       _hasAutoFittedRoute = false;
     });
+    unawaited(_saveDestinationToHistory(result));
+  }
+
+  Future<void> _loadDestinationHistory() async {
+    try {
+      final history = await _destinationSearchService.loadHistory();
+      if (!mounted) return;
+      setState(() {
+        _destinationHistory = history;
+        if (_destinationController.text.isEmpty) {
+          _destinationSuggestions = history;
+        }
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Could not load destination search history: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _destinationSearchError = 'Could not load recent destinations.';
+      });
+    }
+  }
+
+  Future<void> _saveDestinationToHistory(
+    DestinationSearchResult destination,
+  ) async {
+    try {
+      final history = await _destinationSearchService.addToHistory(destination);
+      if (!mounted) return;
+      setState(() => _destinationHistory = history);
+    } catch (error, stackTrace) {
+      debugPrint('Could not save destination search history: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _destinationSearchError =
+            'Destination selected, but could not save it to recent searches.';
+      });
+    }
   }
 
   void _followCurrentLocation() {
@@ -394,15 +466,15 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                               ),
                             if (telemetry.hasDestination)
                               Marker(
-                              point: LatLng(
-                                telemetry.destinationLat,
-                                telemetry.destinationLng,
+                                point: LatLng(
+                                  telemetry.destinationLat,
+                                  telemetry.destinationLng,
+                                ),
+                                width: 36,
+                                height: 36,
+                                child: const Icon(Icons.location_on,
+                                    color: Colors.redAccent, size: 32),
                               ),
-                              width: 36,
-                              height: 36,
-                              child: const Icon(Icons.location_on,
-                                  color: Colors.redAccent, size: 32),
-                            ),
                             for (final haven in telemetry.nearbySafeHavens)
                               Marker(
                                 point: haven.point,
@@ -507,8 +579,8 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                     child: TextField(
                                       controller: _destinationController,
                                       textInputAction: TextInputAction.search,
-                                      onSubmitted: (_) =>
-                                          _searchDestinations(),
+                                      onChanged: _handleDestinationQueryChanged,
+                                      onSubmitted: (_) => _searchDestinations(),
                                       style: const TextStyle(
                                         color: AppColors.textMain,
                                         fontSize: 14,
@@ -523,6 +595,25 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                         ),
                                         border: InputBorder.none,
                                         isDense: true,
+                                        suffixIcon: _destinationController
+                                                .text.isNotEmpty
+                                            ? IconButton(
+                                                tooltip: 'Clear destination',
+                                                onPressed: () {
+                                                  _destinationController
+                                                      .clear();
+                                                  _handleDestinationQueryChanged(
+                                                    '',
+                                                  );
+                                                },
+                                                icon: const Icon(
+                                                  Icons.close,
+                                                  color:
+                                                      AppColors.textSecondary,
+                                                  size: 18,
+                                                ),
+                                              )
+                                            : null,
                                       ),
                                     ),
                                   ),
@@ -547,11 +638,15 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                   ),
                                 ],
                               ),
-                              const Align(
+                              Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
-                                  'OpenStreetMap search • walking routes currently cover Petaling Jaya',
-                                  style: TextStyle(
+                                  _destinationController.text.isEmpty
+                                      ? (_destinationHistory.isEmpty
+                                          ? 'Search places and addresses'
+                                          : 'Recent destinations')
+                                      : 'Search results update as you type • routes cover Petaling Jaya',
+                                  style: const TextStyle(
                                     color: AppColors.textSecondary,
                                     fontSize: 10,
                                   ),
@@ -578,8 +673,7 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                   child: ListView.separated(
                                     shrinkWrap: true,
                                     padding: EdgeInsets.zero,
-                                    itemCount:
-                                        _destinationSuggestions.length,
+                                    itemCount: _destinationSuggestions.length,
                                     separatorBuilder: (_, __) =>
                                         const Divider(height: 1),
                                     itemBuilder: (context, index) {
@@ -1062,10 +1156,10 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                                   ? !telemetry.hasDestination
                                                       ? 'Choose destination first'
                                                       : (telemetry.isRouteLoading ||
-                                                          telemetry
-                                                              .isMapDataLoading
-                                                      ? 'Loading OSM data…'
-                                                      : 'Unavailable')
+                                                              telemetry
+                                                                  .isMapDataLoading
+                                                          ? 'Loading OSM data…'
+                                                          : 'Unavailable')
                                                   : '${(telemetry.safeRoute!.distanceMeters / 1000).toStringAsFixed(1)} km • ${(telemetry.safeRoute!.lightingScore * 100).round()}% lit',
                                               selected: telemetry
                                                       .hasSelectedRoute &&
@@ -1093,10 +1187,10 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                                   ? !telemetry.hasDestination
                                                       ? 'Choose destination first'
                                                       : (telemetry.isRouteLoading ||
-                                                          telemetry
-                                                              .isMapDataLoading
-                                                      ? 'Loading OSM data…'
-                                                      : 'Unavailable')
+                                                              telemetry
+                                                                  .isMapDataLoading
+                                                          ? 'Loading OSM data…'
+                                                          : 'Unavailable')
                                                   : '${(telemetry.directRoute!.distanceMeters / 1000).toStringAsFixed(1)} km • ${(telemetry.directRoute!.lightingScore * 100).round()}% lit',
                                               selected: telemetry
                                                       .hasSelectedRoute &&
@@ -1140,6 +1234,35 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                             fontSize: 10,
                                           ),
                                         ),
+                                        if (telemetry.routeError!.startsWith(
+                                          'FastAPI is unreachable',
+                                        ))
+                                          Align(
+                                            alignment: Alignment.centerLeft,
+                                            child: TextButton.icon(
+                                              onPressed:
+                                                  telemetry.isRouteLoading
+                                                      ? null
+                                                      : telemetry.retryRoute,
+                                              icon: const Icon(
+                                                Icons.refresh,
+                                                size: 16,
+                                              ),
+                                              label: const Text(
+                                                'Retry backend connection',
+                                              ),
+                                              style: TextButton.styleFrom(
+                                                foregroundColor:
+                                                    AppColors.primaryGold,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 4,
+                                                ),
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                              ),
+                                            ),
+                                          ),
                                       ],
                                       const SizedBox(height: 8),
                                       SizedBox(
@@ -1155,7 +1278,8 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                                   BorderRadius.circular(22),
                                             ),
                                           ),
-                                          onPressed: !telemetry.hasDestination ||
+                                          onPressed: !telemetry
+                                                      .hasDestination ||
                                                   !telemetry.hasSelectedRoute ||
                                                   telemetry.routePoints.isEmpty
                                               ? null

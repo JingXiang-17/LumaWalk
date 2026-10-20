@@ -16,26 +16,29 @@ Run these commands from the `backend` directory.
 ### Windows Command Prompt
 
 ```bat
-cd c:\Documents\docs\Desktop\LumaWalk\LumaWalk\backend
-py -m venv venv
-venv\Scripts\activate
+cd /d C:\path\to\LumaWalk\backend
+py -m venv .venv
+.\.venv\Scripts\activate.bat
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-python -m uvicorn main:app --reload
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ### Windows PowerShell
 
 ```powershell
-cd "c:\Documents\docs\Desktop\LumaWalk\LumaWalk\backend"
-py -m venv venv
-.\venv\Scripts\Activate.ps1
+Set-Location "C:\path\to\LumaWalk\backend"
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-python -m uvicorn main:app --reload
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-The API is available at `http://127.0.0.1:8000`.
+Replace `C:\path\to\LumaWalk` with the location of your repository. Keep this
+terminal open while using the Flutter app; Chrome's `localhost:8000` requests
+require the backend server to be running. The API is available at
+`http://127.0.0.1:8000`.
 
 Useful local URLs:
 

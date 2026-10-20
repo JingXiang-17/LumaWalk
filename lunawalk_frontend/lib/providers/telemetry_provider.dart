@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart'; 
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:http/http.dart' as http; 
+import 'package:http/http.dart' as http;
 import '../services/safe_haven_service.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -267,8 +267,7 @@ class TelemetryProvider extends ChangeNotifier {
   int get selectedRouteIndex => _selectedRouteIndex;
   double get alphaSafetyWeight => _alphaSafetyWeight;
   bool get avoidUnlitAlleys => _avoidUnlitAlleys;
-  String get destinationName =>
-      _destinationName ?? 'Enter a destination';
+  String get destinationName => _destinationName ?? 'Enter a destination';
   double get destinationLat => _destination?.latitude ?? _simulationStartLat;
   double get destinationLng => _destination?.longitude ?? _simulationStartLng;
   bool get isNavigating => _isNavigating;
@@ -376,30 +375,32 @@ class TelemetryProvider extends ChangeNotifier {
   }
 
   Future<void> _loadRoutesForCurrentLocation() async {
-    if (_isDisposed || _isMapDataLoading || _destination == null || !_hasCurrentLocation || _isNavigating || _hasSelectedRoute) return;
-    
+    if (_isDisposed ||
+        _isMapDataLoading ||
+        _destination == null ||
+        !_hasCurrentLocation ||
+        _isNavigating ||
+        _hasSelectedRoute) {
+      return;
+    }
+
     final requestId = ++_routeRequestId;
     _isRouteLoading = true;
     _routeError = null;
     notifyListeners();
-    
+
+    final String baseUrl;
+    if (kIsWeb) {
+      baseUrl = 'http://localhost:8000';
+    } else if (Platform.isAndroid) {
+      baseUrl = 'http://10.0.2.2:8000';
+    } else {
+      baseUrl = 'http://localhost:8000';
+    }
+
     try {
-      // NOTE: 10.0.2.2 is required for Android Emulators to hit localhost on your machine
-      String baseUrl;
-      
-      if (kIsWeb) {
-        baseUrl = 'http://localhost:8000';
-      } else if (Platform.isAndroid) {
-        baseUrl = 'http://10.0.2.2:8000'; // Android Emulator
-      } else {
-        baseUrl = 'http://localhost:8000'; // iOS Simulator, macOS, Windows
-      }
-
-      // If testing on a physical phone, manually override here with your Wi-Fi IP:
-      // baseUrl = 'http://192.168.1.X:8000'; 
-
       final url = Uri.parse('$baseUrl/api/v1/route/');
-      
+
       final response = await _client.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -416,17 +417,21 @@ class TelemetryProvider extends ChangeNotifier {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        
+
         // Map the backend JSON coordinates into LatLng objects for Flutter to draw
         _safeRoute = BackendRoute(
-          points: (data['safe_route_coords'] as List).map((c) => LatLng(c[0], c[1])).toList(),
+          points: (data['safe_route_coords'] as List)
+              .map((c) => LatLng(c[0], c[1]))
+              .toList(),
           distanceMeters: data['safe_distance'].toDouble(),
           lightingScore: data['percentage_lit'] / 100.0,
-          havenScore: 0.9, 
+          havenScore: 0.9,
         );
-        
+
         _directRoute = BackendRoute(
-          points: (data['direct_route_coords'] as List).map((c) => LatLng(c[0], c[1])).toList(),
+          points: (data['direct_route_coords'] as List)
+              .map((c) => LatLng(c[0], c[1]))
+              .toList(),
           distanceMeters: data['direct_distance'].toDouble(),
           lightingScore: 0.3,
           havenScore: 0.1,
@@ -434,15 +439,26 @@ class TelemetryProvider extends ChangeNotifier {
       } else {
         _routeError = 'Backend returned error: ${response.statusCode}';
       }
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (_isDisposed || requestId != _routeRequestId) return;
-      _routeError = 'Failed to connect to FastAPI backend: $error';
+      debugPrint('FastAPI route request to $baseUrl failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _routeError = kIsWeb
+          ? 'FastAPI is unreachable at $baseUrl. Check $baseUrl/docs and browser CORS/HTTPS errors.'
+          : 'FastAPI is unreachable at $baseUrl. Confirm the backend is running.';
     } finally {
       if (!_isDisposed && requestId == _routeRequestId) {
         _isRouteLoading = false;
         notifyListeners();
       }
     }
+  }
+
+  void retryRoute() {
+    if (_isRouteLoading || _routeError == null) return;
+    _routeError = null;
+    notifyListeners();
+    _scheduleRouteRefresh();
   }
 
   void _checkRouteDeviation() {

@@ -36,7 +36,9 @@ frontend uses `http://10.0.2.2:8000` to reach the backend on the host machine.
    fixed during navigation.
 5. At the destination, confirm arrival or choose another map point.
 
-Destination search uses OpenStreetMap Nominatim. Safe-haven markers are loaded
-from `assets/mock_data/real_havens_petaling_jaya.geojson`. Route data comes from
-the FastAPI backend. The map uses OpenStreetMap tiles and displays contributor
-attribution.
+Destination search uses Photon with typo-tolerant OpenStreetMap geocoding.
+Selected places are saved locally and shown as recent searches; new users see
+no suggested places until they have selected a destination. Safe-haven markers
+are loaded from `assets/mock_data/real_havens_petaling_jaya.geojson`. Route data
+comes from the FastAPI backend. The map uses OpenStreetMap tiles and displays
+contributor attribution.
