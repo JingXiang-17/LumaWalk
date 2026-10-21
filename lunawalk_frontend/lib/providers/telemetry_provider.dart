@@ -418,13 +418,13 @@ class TelemetryProvider extends ChangeNotifier {
     });
   }
 
-  Future<void> _loadRoutesForCurrentLocation() async {
+  Future<void> _loadRoutesForCurrentLocation(
+      {bool isRecalculation = false}) async {
     if (_isDisposed ||
         _isMapDataLoading ||
         _destination == null ||
         !_hasCurrentLocation ||
-        _isNavigating ||
-        _hasSelectedRoute) {
+        (!isRecalculation && (_isNavigating || _hasSelectedRoute))) {
       return;
     }
 
@@ -454,6 +454,7 @@ class TelemetryProvider extends ChangeNotifier {
           "end_lat": _destination!.latitude,
           "end_lng": _destination!.longitude,
           "alpha_safety_weight": _alphaSafetyWeight,
+          "is_recalculation": isRecalculation,
         }),
       );
 
@@ -480,6 +481,21 @@ class TelemetryProvider extends ChangeNotifier {
           lightingScore: 0.3,
           havenScore: 0.1,
         );
+
+        if (isRecalculation) {
+          _selectedRouteIndex = 0;
+          _selectedRoute = _safeRoute;
+          _selectedRoutePoints = _safeRoute!.points;
+          _hasSelectedRoute = true;
+          _isOffTrack = false;
+          _showOffTrackModal = false;
+          _showBackOnTrackBanner = false;
+          _offTrackAlertDismissed = false;
+          _lastAnnouncedTurnIndex = null;
+          _navigationInstruction =
+              'Continue on the recalculated safest route to $destinationName.';
+          _buddyConsoleStatus = "MONITORING";
+        }
       } else {
         _routeError = 'Backend returned error: ${response.statusCode}';
       }
@@ -496,6 +512,16 @@ class TelemetryProvider extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  Future<void> recalculateSafestRoute() async {
+    if (_isDisposed ||
+        _destination == null ||
+        !_hasCurrentLocation ||
+        !_isNavigating) {
+      return;
+    }
+    await _loadRoutesForCurrentLocation(isRecalculation: true);
   }
 
   void retryRoute() {

@@ -889,8 +889,11 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                         style: ElevatedButton.styleFrom(
                                             backgroundColor:
                                                 AppColors.primaryGold),
-                                        onPressed: () =>
-                                            telemetry.dismissOffTrackModal(),
+                                        onPressed: () {
+                                          telemetry.dismissOffTrackModal();
+                                          unawaited(telemetry
+                                              .recalculateSafestRoute());
+                                        },
                                         child: const Text("I'm Safe",
                                             style: TextStyle(
                                                 color: Colors.black,

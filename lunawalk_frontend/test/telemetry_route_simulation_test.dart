@@ -41,20 +41,27 @@ void main() {
     expect(telemetry.avatarPosition.value.longitude, 101.623001);
   });
 
-  test('keeps a selected route fixed and alerts when simulation strays',
+  test('alerts on deviation and recalculates from the current location',
       () async {
     // 1. Create a mock client that fakes Member 2's backend response
+    var recalculationRequests = 0;
     final mockClient = MockClient((request) async {
+      final requestBody = jsonDecode(request.body) as Map<String, dynamic>;
+      final endLat = (requestBody['end_lat'] as num).toDouble();
+      final endLng = (requestBody['end_lng'] as num).toDouble();
+      if (requestBody['is_recalculation'] == true) {
+        recalculationRequests++;
+      }
       final dummyJsonResponse = jsonEncode({
         "safe_route_coords": [
           [3.1180, 101.6230],
           [3.1200, 101.6300],
-          [3.1279, 101.6501]
+          [endLat, endLng]
         ],
         "safe_distance": 2450.0,
         "direct_route_coords": [
           [3.1180, 101.6230],
-          [3.1279, 101.6501]
+          [endLat, endLng]
         ],
         "direct_distance": 2140.0,
         "percentage_lit": 86.0,
@@ -104,17 +111,13 @@ void main() {
     expect(telemetry.isNavigating, isTrue);
     expect(telemetry.showOffTrackModal, isTrue);
     expect(telemetry.routePoints, selectedRoute);
-    telemetry.selectRoute(0);
-    expect(telemetry.selectedRouteIndex, 1);
-    expect(telemetry.routePoints, selectedRoute);
 
-    telemetry.dismissOffTrackModal();
-    telemetry.moveAvatar(0.0001, 0.0001);
-    expect(telemetry.showOffTrackModal, isFalse);
-
-    telemetry.moveAvatar(-0.0021, -0.0021);
+    await telemetry.recalculateSafestRoute();
+    expect(recalculationRequests, 1);
+    expect(telemetry.selectedRouteIndex, 0);
     expect(telemetry.isOffTrack, isFalse);
-    expect(telemetry.showBackOnTrackBanner, isTrue);
+    expect(telemetry.showOffTrackModal, isFalse);
+    expect(telemetry.routePoints, telemetry.safeRoute!.points);
 
     telemetry.moveAvatar(
       telemetry.destinationLat - telemetry.currentLat,
