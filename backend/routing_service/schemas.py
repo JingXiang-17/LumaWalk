@@ -6,6 +6,7 @@ class RouteRequest(BaseModel):
     start_lng: float
     end_lat: float
     end_lng: float
+    is_recalculation: bool = False
 
 class RouteResponse(BaseModel):
     safe_route_coords: List[List[float]]

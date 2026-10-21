@@ -55,6 +55,10 @@ def get_safe_route(request: RouteRequest):
     extra_distance_meters = safe_distance - direct_distance
     walking_speed_mps = 1.4 
     detour_time_seconds = int(extra_distance_meters / walking_speed_mps)
+
+    if request.is_recalculation:
+        print(f"ALERT: User triggered recalculation from {request.start_lat}, {request.start_lng}")
+        # Later, you can easily save this to a database to map out dangerous/confusing areas!
     
     return RouteResponse(
         safe_route_coords=safe_coords,
@@ -64,3 +68,4 @@ def get_safe_route(request: RouteRequest):
         percentage_lit=percentage_lit, 
         detour_time_seconds=detour_time_seconds
     )
+    
