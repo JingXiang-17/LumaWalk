@@ -285,13 +285,12 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
     });
   }
 
-  // Keyboard Movement Handler (WASD & Arrow Keys)
+  // Keyboard Movement Handler (WASD & Arrow Keys) with higher responsive step
   void _handleKeyEvent(RawKeyEvent event, TelemetryProvider telemetry) {
-    // FIX 1: Prevent keyboard controls from working in Normal Mode
     if (!telemetry.isSimulationMode) return;
 
     if (event is RawKeyDownEvent) {
-      double speed = 0.00008;
+      const double speed = 0.00035; // Noticeable responsive step
       if (event.logicalKey == LogicalKeyboardKey.keyW ||
           event.logicalKey == LogicalKeyboardKey.arrowUp) {
         telemetry.moveAvatar(speed, 0);
@@ -348,9 +347,10 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                 borderRadius: BorderRadius.circular(20),
                 child: Stack(
                   children: [
-                    // 1. INTERACTIVE MAP CANVAS
+                    // ========================================================
+                    // 1. INTERACTIVE MAP CANVAS (WAZE CARTODB VOYAGER)
+                    // ========================================================
                     FlutterMap(
-                      // FIX 3: ValueKey prevents the map from rebuilding and losing zoom/pan state
                       key: const ValueKey('luma_map_layer'),
                       mapController: _mapController,
                       options: MapOptions(
@@ -362,7 +362,9 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                 telemetry.destinationLng,
                               ),
                         initialZoom: 15.8,
-                        keepAlive: true, // Helps preserve camera state
+                        minZoom: 10,
+                        maxZoom: 18.5,
+                        keepAlive: true,
                         onMapReady: () {
                           _mapReady = true;
                           _lastMapCenter = null;
@@ -370,54 +372,85 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                         },
                       ),
                       children: [
+                        // Waze-Style CartoDB Voyager Tile layer
                         TileLayer(
                           urlTemplate:
                               'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                           userAgentPackageName: 'com.lumawalk.app',
                         ),
-                        const SimpleAttributionWidget(
-                          source: Text('OpenStreetMap contributors'),
-                        ),
 
-                        // Polylines
+                        // WAZE-STYLE POLYLINES (Dual casing + Navigation Core)
                         PolylineLayer(
                           polylines: [
+                            // Direct Route Outer Shadow & Core
                             if ((!telemetry.isNavigating ||
                                     telemetry.selectedRouteIndex == 1) &&
-                                telemetry.directRoute != null)
+                                telemetry.directRoute != null) ...[
                               Polyline(
                                 points: telemetry.directRoute!.points,
-                                strokeWidth: telemetry.hasSelectedRoute &&
-                                        telemetry.selectedRouteIndex == 1
-                                    ? 5
-                                    : 3,
-                                color: AppColors.routeUnsafe.withOpacity(
-                                  telemetry.hasSelectedRoute &&
-                                          telemetry.selectedRouteIndex == 1
-                                      ? 0.95
-                                      : 0.45,
+                                strokeWidth: telemetry.selectedRouteIndex == 1
+                                    ? 8.5
+                                    : 5.0,
+                                color: const Color(0xFF7F1D1D).withOpacity(
+                                  telemetry.selectedRouteIndex == 1 ? 0.9 : 0.4,
                                 ),
+                                strokeCap: StrokeCap.round,
+                                strokeJoin: StrokeJoin.round,
                               ),
+                              Polyline(
+                                points: telemetry.directRoute!.points,
+                                strokeWidth: telemetry.selectedRouteIndex == 1
+                                    ? 5.0
+                                    : 3.0,
+                                color: AppColors.routeUnsafe.withOpacity(
+                                  telemetry.selectedRouteIndex == 1
+                                      ? 0.95
+                                      : 0.6,
+                                ),
+                                strokeCap: StrokeCap.round,
+                                strokeJoin: StrokeJoin.round,
+                              ),
+                            ],
+
+                            // Safe Route Outer Shadow & Core
                             if ((!telemetry.isNavigating ||
                                     telemetry.selectedRouteIndex == 0) &&
-                                telemetry.safeRoute != null)
+                                telemetry.safeRoute != null) ...[
                               Polyline(
                                 points: telemetry.safeRoute!.points,
-                                strokeWidth: telemetry.hasSelectedRoute &&
-                                        telemetry.selectedRouteIndex == 0
-                                    ? 5
-                                    : 3,
-                                color: AppColors.routeSafe.withOpacity(
-                                  telemetry.isNavigating ||
-                                          (telemetry.hasSelectedRoute &&
-                                              telemetry.selectedRouteIndex == 0)
+                                strokeWidth: (telemetry.isNavigating ||
+                                        telemetry.selectedRouteIndex == 0)
+                                    ? 9.0
+                                    : 5.5,
+                                color: const Color(0xFF0F2B1D).withOpacity(
+                                  (telemetry.isNavigating ||
+                                          telemetry.selectedRouteIndex == 0)
                                       ? 0.95
-                                      : 0.55,
+                                      : 0.5,
                                 ),
+                                strokeCap: StrokeCap.round,
+                                strokeJoin: StrokeJoin.round,
                               ),
+                              Polyline(
+                                points: telemetry.safeRoute!.points,
+                                strokeWidth: (telemetry.isNavigating ||
+                                        telemetry.selectedRouteIndex == 0)
+                                    ? 5.5
+                                    : 3.5,
+                                color: AppColors.routeSafe.withOpacity(
+                                  (telemetry.isNavigating ||
+                                          telemetry.selectedRouteIndex == 0)
+                                      ? 0.98
+                                      : 0.65,
+                                ),
+                                strokeCap: StrokeCap.round,
+                                strokeJoin: StrokeJoin.round,
+                              ),
+                            ],
                           ],
                         ),
 
+                        // USER AVATAR / NAVIGATION PUCK
                         ValueListenableBuilder<AvatarPosition>(
                           valueListenable: telemetry.avatarPosition,
                           builder: (context, avatarPosition, _) => MarkerLayer(
@@ -448,7 +481,7 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                     child: telemetry.isSimulationMode
                                         ? ClipOval(
                                             child: Image.asset(
-                                              'assets/images/logo.jpeg',
+                                              'assets/images/logo_b.jpeg',
                                               fit: BoxFit.cover,
                                             ),
                                           )
@@ -468,7 +501,7 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                           ),
                         ),
 
-                        // Destination and safe-haven markers update with map state.
+                        // DECLUTTERED WAZE-STYLE PINS (Destination + Safe Havens)
                         MarkerLayer(
                           markers: [
                             if (telemetry.hasDestination)
@@ -477,16 +510,19 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                   telemetry.destinationLat,
                                   telemetry.destinationLng,
                                 ),
-                                width: 36,
-                                height: 36,
-                                child: const Icon(Icons.location_on,
-                                    color: Colors.redAccent, size: 32),
+                                width: 34,
+                                height: 34,
+                                child: const Icon(
+                                  Icons.location_on,
+                                  color: Colors.redAccent,
+                                  size: 32,
+                                ),
                               ),
                             for (final haven in telemetry.nearbySafeHavens)
                               Marker(
                                 point: haven.point,
-                                width: 28,
-                                height: 28,
+                                width: 22,
+                                height: 22,
                                 child: Tooltip(
                                   message:
                                       'OSM safe haven • Class ${haven.classification}',
@@ -494,17 +530,24 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
                                       color: haven.classification == 'A'
-                                          ? Colors.amber
-                                          : Colors.blueAccent,
+                                          ? const Color(0xFFF59E0B)
+                                          : const Color(0xFF0284C7),
                                       border: Border.all(
                                         color: Colors.white,
-                                        width: 1.5,
+                                        width: 1.6,
                                       ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.35),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 1.5),
+                                        ),
+                                      ],
                                     ),
                                     child: const Icon(
                                       Icons.shield,
                                       color: Colors.white,
-                                      size: 17,
+                                      size: 11,
                                     ),
                                   ),
                                 ),
@@ -610,8 +653,7 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                                   _destinationController
                                                       .clear();
                                                   _handleDestinationQueryChanged(
-                                                    '',
-                                                  );
+                                                      '');
                                                 },
                                                 icon: const Icon(
                                                   Icons.close,
@@ -917,12 +959,13 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                         bottom: 16,
                         left: 10,
                         child: _SimulationJoystick(
-                          onUp: () => telemetry.moveAvatar(0.00008, 0),
-                          onDown: () => telemetry.moveAvatar(-0.00008, 0),
-                          onLeft: () => telemetry.moveAvatar(0, -0.00008),
-                          onRight: () => telemetry.moveAvatar(0, 0.00008),
+                          onUp: () => telemetry.moveAvatar(0.00035, 0),
+                          onDown: () => telemetry.moveAvatar(-0.00035, 0),
+                          onLeft: () => telemetry.moveAvatar(0, -0.00035),
+                          onRight: () => telemetry.moveAvatar(0, 0.00035),
                           onMove: (offset) {
-                            const maxDistancePerTick = 0.0000012;
+                            // Noticeably faster tick for fluid walk navigation
+                            const maxDistancePerTick = 0.000035;
                             telemetry.moveAvatar(
                               -offset.dy /
                                   _SimulationJoystickState._maxKnobOffset *
@@ -940,7 +983,7 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                     // ========================================================
                     Positioned(
                       bottom: 16,
-                      left: telemetry.isSimulationMode ? 135 : 16,
+                      left: telemetry.isSimulationMode ? 142 : 16,
                       right: 16,
                       child: ConstrainedBox(
                         constraints: BoxConstraints(
@@ -1241,11 +1284,9 @@ class _RouteChoiceButton extends StatelessWidget {
         constraints: const BoxConstraints(minHeight: 52),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          color: selected ? color.withValues(alpha: 0.16) : Colors.transparent,
+          color: selected ? color.withOpacity(0.16) : Colors.transparent,
           border: Border.all(
-            color: selected
-                ? color
-                : AppColors.textSecondary.withValues(alpha: 0.3),
+            color: selected ? color : AppColors.textSecondary.withOpacity(0.3),
           ),
           borderRadius: BorderRadius.circular(10),
         ),
@@ -1299,8 +1340,8 @@ class _SimulationJoystick extends StatefulWidget {
 }
 
 class _SimulationJoystickState extends State<_SimulationJoystick> {
-  static const _moveInterval = Duration(milliseconds: 50);
-  static const _maxKnobOffset = 25.0;
+  static const _moveInterval = Duration(milliseconds: 40);
+  static const _maxKnobOffset = 32.0;
 
   Offset _knobOffset = Offset.zero;
   Timer? _movementTimer;
@@ -1336,11 +1377,11 @@ class _SimulationJoystickState extends State<_SimulationJoystick> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 115,
-      height: 115,
+      width: 125,
+      height: 125,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: AppColors.inputBackground.withOpacity(0.85),
+        color: AppColors.inputBackground.withOpacity(0.9),
         border: Border.all(color: AppColors.primaryGold, width: 2),
         boxShadow: [
           BoxShadow(
@@ -1359,7 +1400,7 @@ class _SimulationJoystickState extends State<_SimulationJoystick> {
               child: const Icon(
                 Icons.arrow_drop_up,
                 color: AppColors.primaryGold,
-                size: 26,
+                size: 28,
               ),
             ),
           ),
@@ -1370,7 +1411,7 @@ class _SimulationJoystickState extends State<_SimulationJoystick> {
               child: const Icon(
                 Icons.arrow_drop_down,
                 color: AppColors.primaryGold,
-                size: 26,
+                size: 28,
               ),
             ),
           ),
@@ -1381,7 +1422,7 @@ class _SimulationJoystickState extends State<_SimulationJoystick> {
               child: const Icon(
                 Icons.arrow_left,
                 color: AppColors.primaryGold,
-                size: 26,
+                size: 28,
               ),
             ),
           ),
@@ -1392,7 +1433,7 @@ class _SimulationJoystickState extends State<_SimulationJoystick> {
               child: const Icon(
                 Icons.arrow_right,
                 color: AppColors.primaryGold,
-                size: 26,
+                size: 28,
               ),
             ),
           ),
@@ -1404,8 +1445,8 @@ class _SimulationJoystickState extends State<_SimulationJoystick> {
             child: Transform.translate(
               offset: _knobOffset,
               child: Container(
-                width: 38,
-                height: 38,
+                width: 44,
+                height: 44,
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   color: AppColors.primaryGold,
@@ -1416,7 +1457,7 @@ class _SimulationJoystickState extends State<_SimulationJoystick> {
                 child: const Icon(
                   Icons.open_with,
                   color: Colors.black,
-                  size: 18,
+                  size: 20,
                 ),
               ),
             ),
