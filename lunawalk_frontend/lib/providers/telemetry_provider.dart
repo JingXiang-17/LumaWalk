@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -13,6 +14,13 @@ class TelemetryProvider extends ChangeNotifier {
   static const double _simulationStartLat = 3.1180;
   static const double _simulationStartLng = 101.6230;
   final SafeHavenService _safeHavenService = SafeHavenService();
+  final ValueNotifier<AvatarPosition> _avatarPosition = ValueNotifier(
+    const AvatarPosition(
+      latitude: _simulationStartLat,
+      longitude: _simulationStartLng,
+      heading: 0,
+    ),
+  );
 
   // 1. User Profile & Preferences
   String _userName = "Luma Walker";
@@ -187,6 +195,7 @@ class TelemetryProvider extends ChangeNotifier {
     }
     _hasCurrentLocation = true;
     _locationError = null;
+    _publishAvatarPosition();
     _checkRouteDeviation();
     _scheduleRouteRefresh();
     notifyListeners();
@@ -199,6 +208,7 @@ class TelemetryProvider extends ChangeNotifier {
     _backOnTrackTimer?.cancel();
     _routeRefreshTimer?.cancel();
     unawaited(_locationSubscription?.cancel());
+    _avatarPosition.dispose();
     super.dispose();
   }
 
@@ -213,6 +223,7 @@ class TelemetryProvider extends ChangeNotifier {
   List<Map<String, String>> get emergencyContacts => _emergencyContacts;
 
   bool get isSimulationMode => _isSimulationMode;
+  ValueListenable<AvatarPosition> get avatarPosition => _avatarPosition;
   double get currentLat => _currentLat;
   double get currentLng => _currentLng;
   double get currentHeading => _currentHeading;
@@ -300,7 +311,9 @@ class TelemetryProvider extends ChangeNotifier {
     if (isSim) {
       _currentLat = _simulationStartLat;
       _currentLng = _simulationStartLng;
+      _currentHeading = 0;
       _hasCurrentLocation = true;
+      _publishAvatarPosition();
       unawaited(_locationSubscription?.cancel());
       _locationSubscription = null;
       _scheduleRouteRefresh();
@@ -315,15 +328,46 @@ class TelemetryProvider extends ChangeNotifier {
   }
 
   void moveAvatar(double deltaLat, double deltaLng) {
+    if (deltaLat == 0 && deltaLng == 0) return;
+
+    final previousNavigationState = (
+      isOffTrack: _isOffTrack,
+      showOffTrackModal: _showOffTrackModal,
+      showBackOnTrackBanner: _showBackOnTrackBanner,
+      hasReachedDestination: _hasReachedDestination,
+      isNavigating: _isNavigating,
+      navigationInstruction: _navigationInstruction,
+      buddyConsoleStatus: _buddyConsoleStatus,
+    );
     if (deltaLat != 0 || deltaLng != 0) {
       _currentHeading =
           (math.atan2(deltaLng, deltaLat) * 180 / math.pi + 360) % 360;
     }
     _currentLat += deltaLat;
     _currentLng += deltaLng;
+    _publishAvatarPosition();
     _checkRouteDeviation();
     _scheduleRouteRefresh();
-    notifyListeners();
+    final currentNavigationState = (
+      isOffTrack: _isOffTrack,
+      showOffTrackModal: _showOffTrackModal,
+      showBackOnTrackBanner: _showBackOnTrackBanner,
+      hasReachedDestination: _hasReachedDestination,
+      isNavigating: _isNavigating,
+      navigationInstruction: _navigationInstruction,
+      buddyConsoleStatus: _buddyConsoleStatus,
+    );
+    if (previousNavigationState != currentNavigationState) {
+      notifyListeners();
+    }
+  }
+
+  void _publishAvatarPosition() {
+    _avatarPosition.value = AvatarPosition(
+      latitude: _currentLat,
+      longitude: _currentLng,
+      heading: _currentHeading,
+    );
   }
 
   static const double _routeDeviationThresholdMeters = 35;
@@ -894,4 +938,18 @@ class TelemetryProvider extends ChangeNotifier {
       "nearby_haven_score": double.parse(route.havenScore.toStringAsFixed(2)),
     };
   }
+}
+
+class AvatarPosition {
+  const AvatarPosition({
+    required this.latitude,
+    required this.longitude,
+    required this.heading,
+  });
+
+  final double latitude;
+  final double longitude;
+  final double heading;
+
+  LatLng get point => LatLng(latitude, longitude);
 }

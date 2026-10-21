@@ -20,8 +20,29 @@ void main() {
         .setMockMethodCallHandler(locationChannel, null);
   });
 
-  test('keeps a selected route fixed and alerts when simulation strays', () async {
-    
+  test('publishes avatar movement without notifying the whole UI', () async {
+    final telemetry = TelemetryProvider(
+      client: MockClient((_) async => http.Response('{}', 200)),
+    );
+    addTearDown(telemetry.dispose);
+
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (telemetry.isMapDataLoading && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    telemetry.setSimulationMode(true);
+
+    var stateNotifications = 0;
+    telemetry.addListener(() => stateNotifications++);
+    telemetry.moveAvatar(0.000001, 0.000001);
+
+    expect(stateNotifications, 0);
+    expect(telemetry.avatarPosition.value.latitude, 3.118001);
+    expect(telemetry.avatarPosition.value.longitude, 101.623001);
+  });
+
+  test('keeps a selected route fixed and alerts when simulation strays',
+      () async {
     // 1. Create a mock client that fakes Member 2's backend response
     final mockClient = MockClient((request) async {
       final dummyJsonResponse = jsonEncode({
@@ -39,15 +60,14 @@ void main() {
         "percentage_lit": 86.0,
         "detour_time_seconds": 310
       });
-      return http.Response(dummyJsonResponse, 200, headers: {
-        'content-type': 'application/json'
-      });
+      return http.Response(dummyJsonResponse, 200,
+          headers: {'content-type': 'application/json'});
     });
 
     // 2. Inject the mock client into the provider
     final telemetry = TelemetryProvider(client: mockClient);
     addTearDown(telemetry.dispose);
-    
+
     telemetry.setSimulationMode(true);
     telemetry.startNavigation();
     expect(telemetry.isNavigating, isFalse);
@@ -55,7 +75,7 @@ void main() {
       telemetry.routeError,
       'Search for and select a destination before navigating.',
     );
-    
+
     telemetry.setDestination(
       const LatLng(3.1279, 101.6501),
       name: 'UM FSKTM',
@@ -67,7 +87,7 @@ void main() {
         DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
-    
+
     expect(telemetry.routeError, isNull);
     expect(telemetry.safeRoute, isNotNull);
     expect(telemetry.directRoute, isNotNull);
@@ -116,7 +136,7 @@ void main() {
         DateTime.now().isBefore(rerouteDeadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
-    
+
     expect(telemetry.routeError, isNull);
     expect(telemetry.safeRoute, isNotNull);
     expect(telemetry.safeRoute!.points.last, alternateDestination);

@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const Color background = Color(0xFF071326); // Deep navy night sky
-  static const Color primaryGold = Color(0xFFF3C85E); // Premium lunar gold
-  static const Color highlightCream = Color(0xFFFFF0B3); // Glowing logo details
-  static const Color inputBackground = Color(
-    0xFF111F33,
-  ); // Darker blue for text fields
-  static const Color textMain = Color(0xFFF5EBDD);
-  static const Color textSecondary = Color(0xFFA9B4C5);
-  static const Color routeSafe = Colors.cyanAccent; // Cyan for safe route
-  static const Color routeUnsafe = Colors.redAccent; // Crimson for direct route
+  // Matched directly to the frame image palette
+  static const Color background = Color(0xFF231A4C); // Deep royal indigo
+  static const Color inputBackground =
+      Color(0xFF1B143D); // Deeper indigo for input fill
+  static const Color primaryGold =
+      Color(0xFFF2DF99); // Champagne gold matching frame lines
+  static const Color highlightCream = Color(0xFFFFF6D6);
+
+  // Typography
+  static const Color textMain = Color(0xFFF9F5EE);
+  static const Color textSecondary = Color(0xFFAFA7CE);
+
+  // Status & Routes
+  static const Color routeSafe = Colors.cyanAccent;
+  static const Color routeUnsafe = Colors.redAccent;
 }

@@ -22,8 +22,6 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
   final MapController _mapController = MapController();
   final FocusNode _focusNode = FocusNode();
 
-  // Joystick Drag State
-  Offset _joystickDelta = Offset.zero;
   final TextEditingController _destinationController = TextEditingController();
   final DestinationSearchService _destinationSearchService =
       DestinationSearchService();
@@ -39,19 +37,21 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
   LatLng? _lastMapCenter;
   final FlutterTts _speech = FlutterTts();
   String? _lastSpokenInstruction;
+  late final TelemetryProvider _telemetry;
 
   @override
   void initState() {
     super.initState();
-    Provider.of<TelemetryProvider>(context, listen: false)
-        .addListener(_handleTelemetryChanged);
+    _telemetry = Provider.of<TelemetryProvider>(context, listen: false);
+    _telemetry.addListener(_handleTelemetryChanged);
+    _telemetry.avatarPosition.addListener(_handleAvatarPositionChanged);
     unawaited(_loadDestinationHistory());
   }
 
   @override
   void dispose() {
-    Provider.of<TelemetryProvider>(context, listen: false)
-        .removeListener(_handleTelemetryChanged);
+    _telemetry.removeListener(_handleTelemetryChanged);
+    _telemetry.avatarPosition.removeListener(_handleAvatarPositionChanged);
     unawaited(_speech.stop());
     _destinationSearchDebounce?.cancel();
     _destinationSearchService.dispose();
@@ -61,7 +61,8 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
   }
 
   void _handleTelemetryChanged() {
-    final telemetry = Provider.of<TelemetryProvider>(context, listen: false);
+    if (mounted) setState(() {});
+    final telemetry = _telemetry;
     _followCurrentLocation();
     if (!telemetry.hasReachedDestination) {
       _hasShownArrivalDialog = false;
@@ -81,6 +82,10 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
         unawaited(_speakInstruction(instruction));
       }
     }
+  }
+
+  void _handleAvatarPositionChanged() {
+    if (mounted) _followCurrentLocation();
   }
 
   Future<void> _speakInstruction(String instruction) async {
@@ -300,14 +305,12 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
           event.logicalKey == LogicalKeyboardKey.arrowRight) {
         telemetry.moveAvatar(0, speed);
       }
-      _mapController.move(LatLng(telemetry.currentLat, telemetry.currentLng),
-          _mapController.zoom);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final telemetry = Provider.of<TelemetryProvider>(context);
+    final telemetry = _telemetry;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -415,55 +418,59 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                           ],
                         ),
 
-                        // Map Markers
+                        ValueListenableBuilder<AvatarPosition>(
+                          valueListenable: telemetry.avatarPosition,
+                          builder: (context, avatarPosition, _) => MarkerLayer(
+                            markers: [
+                              if (telemetry.hasCurrentLocation ||
+                                  telemetry.isSimulationMode)
+                                Marker(
+                                  point: avatarPosition.point,
+                                  width: 46,
+                                  height: 46,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: AppColors.background,
+                                      border: Border.all(
+                                        color: AppColors.primaryGold,
+                                        width: 2.2,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppColors.primaryGold
+                                              .withOpacity(0.7),
+                                          blurRadius: 12,
+                                          spreadRadius: 2,
+                                        ),
+                                      ],
+                                    ),
+                                    child: telemetry.isSimulationMode
+                                        ? ClipOval(
+                                            child: Image.asset(
+                                              'assets/images/logo.jpeg',
+                                              fit: BoxFit.cover,
+                                            ),
+                                          )
+                                        : Transform.rotate(
+                                            angle: avatarPosition.heading *
+                                                math.pi /
+                                                180,
+                                            child: const Icon(
+                                              Icons.navigation,
+                                              color: AppColors.primaryGold,
+                                              size: 28,
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+
+                        // Destination and safe-haven markers update with map state.
                         MarkerLayer(
                           markers: [
-                            // DYNAMIC USER AVATAR MARKER
-                            if (telemetry.hasCurrentLocation ||
-                                telemetry.isSimulationMode)
-                              Marker(
-                                point: LatLng(
-                                  telemetry.currentLat,
-                                  telemetry.currentLng,
-                                ),
-                                width: 46,
-                                height: 46,
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: AppColors.background,
-                                    border: Border.all(
-                                      color: AppColors.primaryGold,
-                                      width: 2.2,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: AppColors.primaryGold
-                                            .withOpacity(0.7),
-                                        blurRadius: 12,
-                                        spreadRadius: 2,
-                                      ),
-                                    ],
-                                  ),
-                                  child: telemetry.isSimulationMode
-                                      ? ClipOval(
-                                          child: Image.asset(
-                                            'assets/images/logo.png',
-                                            fit: BoxFit.cover,
-                                          ),
-                                        )
-                                      : Transform.rotate(
-                                          angle: telemetry.currentHeading *
-                                              math.pi /
-                                              180,
-                                          child: const Icon(
-                                            Icons.navigation,
-                                            color: AppColors.primaryGold,
-                                            size: 28,
-                                          ),
-                                        ),
-                                ),
-                              ),
                             if (telemetry.hasDestination)
                               Marker(
                                 point: LatLng(
@@ -909,123 +916,22 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                       Positioned(
                         bottom: 16,
                         left: 10,
-                        child: Container(
-                          width: 115,
-                          height: 115,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.inputBackground.withOpacity(0.85),
-                            border: Border.all(
-                                color: AppColors.primaryGold, width: 2),
-                            boxShadow: [
-                              BoxShadow(
-                                  color: AppColors.primaryGold.withOpacity(0.4),
-                                  blurRadius: 12),
-                            ],
-                          ),
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              Positioned(
-                                top: 4,
-                                child: GestureDetector(
-                                  onTap: () {
-                                    telemetry.moveAvatar(0.00008, 0);
-                                    _mapController.move(
-                                        LatLng(telemetry.currentLat,
-                                            telemetry.currentLng),
-                                        _mapController.zoom);
-                                  },
-                                  child: const Icon(Icons.arrow_drop_up,
-                                      color: AppColors.primaryGold, size: 26),
-                                ),
-                              ),
-                              Positioned(
-                                bottom: 4,
-                                child: GestureDetector(
-                                  onTap: () {
-                                    telemetry.moveAvatar(-0.00008, 0);
-                                    _mapController.move(
-                                        LatLng(telemetry.currentLat,
-                                            telemetry.currentLng),
-                                        _mapController.zoom);
-                                  },
-                                  child: const Icon(Icons.arrow_drop_down,
-                                      color: AppColors.primaryGold, size: 26),
-                                ),
-                              ),
-                              Positioned(
-                                left: 4,
-                                child: GestureDetector(
-                                  onTap: () {
-                                    telemetry.moveAvatar(0, -0.00008);
-                                    _mapController.move(
-                                        LatLng(telemetry.currentLat,
-                                            telemetry.currentLng),
-                                        _mapController.zoom);
-                                  },
-                                  child: const Icon(Icons.arrow_left,
-                                      color: AppColors.primaryGold, size: 26),
-                                ),
-                              ),
-                              Positioned(
-                                right: 4,
-                                child: GestureDetector(
-                                  onTap: () {
-                                    telemetry.moveAvatar(0, 0.00008);
-                                    _mapController.move(
-                                        LatLng(telemetry.currentLat,
-                                            telemetry.currentLng),
-                                        _mapController.zoom);
-                                  },
-                                  child: const Icon(Icons.arrow_right,
-                                      color: AppColors.primaryGold, size: 26),
-                                ),
-                              ),
-                              GestureDetector(
-                                onPanUpdate: (details) {
-                                  setState(() {
-                                    _joystickDelta += details.delta;
-                                    if (_joystickDelta.distance > 25) {
-                                      _joystickDelta = Offset.fromDirection(
-                                          _joystickDelta.direction, 25);
-                                    }
-                                  });
-                                  double speed = 0.00003;
-                                  telemetry.moveAvatar(
-                                      -_joystickDelta.dy * speed,
-                                      _joystickDelta.dx * speed);
-                                  _mapController.move(
-                                      LatLng(telemetry.currentLat,
-                                          telemetry.currentLng),
-                                      _mapController.zoom);
-                                },
-                                onPanEnd: (_) {
-                                  setState(() {
-                                    _joystickDelta = Offset.zero;
-                                  });
-                                },
-                                child: Transform.translate(
-                                  offset: _joystickDelta,
-                                  child: Container(
-                                    width: 38,
-                                    height: 38,
-                                    decoration: const BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: AppColors.primaryGold,
-                                      boxShadow: [
-                                        BoxShadow(
-                                            color: Colors.black54,
-                                            blurRadius: 6)
-                                      ],
-                                    ),
-                                    child: const Icon(Icons.open_with,
-                                        color: Colors.black, size: 18),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                        child: _SimulationJoystick(
+                          onUp: () => telemetry.moveAvatar(0.00008, 0),
+                          onDown: () => telemetry.moveAvatar(-0.00008, 0),
+                          onLeft: () => telemetry.moveAvatar(0, -0.00008),
+                          onRight: () => telemetry.moveAvatar(0, 0.00008),
+                          onMove: (offset) {
+                            const maxDistancePerTick = 0.0000012;
+                            telemetry.moveAvatar(
+                              -offset.dy /
+                                  _SimulationJoystickState._maxKnobOffset *
+                                  maxDistancePerTick,
+                              offset.dx /
+                                  _SimulationJoystickState._maxKnobOffset *
+                                  maxDistancePerTick,
+                            );
+                          },
                         ),
                       ),
 
@@ -1368,6 +1274,154 @@ class _RouteChoiceButton extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SimulationJoystick extends StatefulWidget {
+  const _SimulationJoystick({
+    required this.onUp,
+    required this.onDown,
+    required this.onLeft,
+    required this.onRight,
+    required this.onMove,
+  });
+
+  final VoidCallback onUp;
+  final VoidCallback onDown;
+  final VoidCallback onLeft;
+  final VoidCallback onRight;
+  final ValueChanged<Offset> onMove;
+
+  @override
+  State<_SimulationJoystick> createState() => _SimulationJoystickState();
+}
+
+class _SimulationJoystickState extends State<_SimulationJoystick> {
+  static const _moveInterval = Duration(milliseconds: 50);
+  static const _maxKnobOffset = 25.0;
+
+  Offset _knobOffset = Offset.zero;
+  Timer? _movementTimer;
+
+  @override
+  void dispose() {
+    _movementTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startMovement() {
+    _movementTimer ??= Timer.periodic(
+      _moveInterval,
+      (_) => widget.onMove(_knobOffset),
+    );
+  }
+
+  void _updateKnob(DragUpdateDetails details) {
+    setState(() {
+      final nextOffset = _knobOffset + details.delta;
+      _knobOffset = nextOffset.distance > _maxKnobOffset
+          ? Offset.fromDirection(nextOffset.direction, _maxKnobOffset)
+          : nextOffset;
+    });
+  }
+
+  void _stopMovement() {
+    _movementTimer?.cancel();
+    _movementTimer = null;
+    setState(() => _knobOffset = Offset.zero);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 115,
+      height: 115,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: AppColors.inputBackground.withOpacity(0.85),
+        border: Border.all(color: AppColors.primaryGold, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryGold.withOpacity(0.4),
+            blurRadius: 12,
+          ),
+        ],
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned(
+            top: 4,
+            child: GestureDetector(
+              onTap: widget.onUp,
+              child: const Icon(
+                Icons.arrow_drop_up,
+                color: AppColors.primaryGold,
+                size: 26,
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 4,
+            child: GestureDetector(
+              onTap: widget.onDown,
+              child: const Icon(
+                Icons.arrow_drop_down,
+                color: AppColors.primaryGold,
+                size: 26,
+              ),
+            ),
+          ),
+          Positioned(
+            left: 4,
+            child: GestureDetector(
+              onTap: widget.onLeft,
+              child: const Icon(
+                Icons.arrow_left,
+                color: AppColors.primaryGold,
+                size: 26,
+              ),
+            ),
+          ),
+          Positioned(
+            right: 4,
+            child: GestureDetector(
+              onTap: widget.onRight,
+              child: const Icon(
+                Icons.arrow_right,
+                color: AppColors.primaryGold,
+                size: 26,
+              ),
+            ),
+          ),
+          GestureDetector(
+            onPanStart: (_) => _startMovement(),
+            onPanUpdate: _updateKnob,
+            onPanEnd: (_) => _stopMovement(),
+            onPanCancel: _stopMovement,
+            child: Transform.translate(
+              offset: _knobOffset,
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.primaryGold,
+                  boxShadow: [
+                    BoxShadow(color: Colors.black54, blurRadius: 6),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.open_with,
+                  color: Colors.black,
+                  size: 18,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

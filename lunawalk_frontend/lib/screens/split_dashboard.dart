@@ -109,19 +109,17 @@ class SplitDashboard extends StatelessWidget {
                             : routeStatusColor.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color:
-                              telemetry.isSosActive
-                                  ? Colors.red
-                                  : routeStatusColor,
+                          color: telemetry.isSosActive
+                              ? Colors.red
+                              : routeStatusColor,
                         ),
                       ),
                       child: Text(
                         routeStatus,
                         style: TextStyle(
-                          color:
-                              telemetry.isSosActive
-                                  ? Colors.red
-                                  : routeStatusColor,
+                          color: telemetry.isSosActive
+                              ? Colors.red
+                              : routeStatusColor,
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                         ),
@@ -187,15 +185,18 @@ class SplitDashboard extends StatelessWidget {
                   width: telemetry.isSosActive ? 1.5 : 1.0,
                 ),
               ),
-              child: SelectableText(
-                telemetry.formattedJsonPayload,
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  color: telemetry.isSosActive
-                      ? Colors.redAccent
-                      : Colors.cyanAccent,
-                  fontSize: 13,
-                  height: 1.4,
+              child: ValueListenableBuilder<AvatarPosition>(
+                valueListenable: telemetry.avatarPosition,
+                builder: (context, _, __) => SelectableText(
+                  telemetry.formattedJsonPayload,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    color: telemetry.isSosActive
+                        ? Colors.redAccent
+                        : Colors.cyanAccent,
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
                 ),
               ),
             ),
