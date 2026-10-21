@@ -7,6 +7,56 @@ import '../theme/app_colors.dart';
 class InsightsScreen extends StatelessWidget {
   const InsightsScreen({super.key});
 
+  void _showSimulationStatus(
+    BuildContext context, {
+    required String title,
+    required bool enabled,
+    required String description,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.inputBackground,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: AppColors.primaryGold.withOpacity(0.5)),
+        ),
+        title: Row(
+          children: [
+            Icon(
+              enabled ? Icons.play_circle_outline : Icons.pause_circle_outline,
+              color: enabled ? AppColors.routeSafe : AppColors.textSecondary,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                enabled ? '$title is on' : '$title is off',
+                style: const TextStyle(
+                  color: AppColors.primaryGold,
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          description,
+          style: const TextStyle(color: AppColors.textMain, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text(
+              'Close',
+              style: TextStyle(color: AppColors.primaryGold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final telemetry = Provider.of<TelemetryProvider>(context);
@@ -106,22 +156,32 @@ class InsightsScreen extends StatelessWidget {
                                                 vertical: 8),
                                           ),
                                           onPressed: () {
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  "Simulated: Power failure reported. Safety weights recalculated.",
-                                                  style:
-                                                      TextStyle(fontSize: 12),
-                                                ),
-                                              ),
+                                            final enabled = !telemetry
+                                                .lightingFailureSimulation;
+                                            telemetry
+                                                .setLightingFailureSimulation(
+                                                    enabled);
+                                            _showSimulationStatus(
+                                              context,
+                                              title: 'Lighting failure',
+                                              enabled: enabled,
+                                              description: enabled
+                                                  ? 'One or two lights on the route are marked broken. Safe route lighting and route recommendations are recalculated around the outages.'
+                                                  : 'The simulated light outages are cleared and routes are recalculated.',
                                             );
                                           },
-                                          icon: const Icon(Icons.flash_off,
-                                              color: Colors.amber, size: 14),
-                                          label: const Text(
-                                            "Lighting Failure",
-                                            style: TextStyle(
+                                          icon: Icon(
+                                              telemetry
+                                                      .lightingFailureSimulation
+                                                  ? Icons.flash_on
+                                                  : Icons.flash_off,
+                                              color: Colors.amber,
+                                              size: 14),
+                                          label: Text(
+                                            telemetry.lightingFailureSimulation
+                                                ? "Failure Active"
+                                                : "Lighting Failure",
+                                            style: const TextStyle(
                                                 color: Colors.amber,
                                                 fontSize: 11),
                                           ),
@@ -139,24 +199,28 @@ class InsightsScreen extends StatelessWidget {
                                                 vertical: 8),
                                           ),
                                           onPressed: () {
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  "Simulated: Time shifted to 3:00 AM.",
-                                                  style:
-                                                      TextStyle(fontSize: 12),
-                                                ),
-                                              ),
+                                            final enabled =
+                                                !telemetry.nightShiftSimulation;
+                                            telemetry.setNightShiftSimulation(
+                                                enabled);
+                                            _showSimulationStatus(
+                                              context,
+                                              title: '3:00 AM shift',
+                                              enabled: enabled,
+                                              description: enabled
+                                                  ? 'The 3:00 AM scenario is active in this demo. It does not currently change live traffic or backend route data.'
+                                                  : 'The 3:00 AM scenario has been turned off.',
                                             );
                                           },
                                           icon: const Icon(
                                               Icons.nightlight_round,
                                               color: Colors.cyanAccent,
                                               size: 14),
-                                          label: const Text(
-                                            "3:00 AM Shift",
-                                            style: TextStyle(
+                                          label: Text(
+                                            telemetry.nightShiftSimulation
+                                                ? "3 AM Active"
+                                                : "3:00 AM Shift",
+                                            style: const TextStyle(
                                                 color: Colors.cyanAccent,
                                                 fontSize: 11),
                                           ),
@@ -170,15 +234,18 @@ class InsightsScreen extends StatelessWidget {
                             const SizedBox(height: 16),
                           ],
 
-                          // 1. CAMPUS SAFETY INDEX WITH GLOWING RADIAL NEON GAUGE
+                          // 1. SAFE-ROUTE LIGHTING COVERAGE
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
                               // Radial Glowing Meter
-                              const SizedBox(
+                              SizedBox(
                                 width: 110,
                                 height: 110,
-                                child: _GlowingSafetyGauge(percentage: 0.94),
+                                child: _GlowingSafetyGauge(
+                                  percentage:
+                                      telemetry.safeRoute?.lightingScore,
+                                ),
                               ),
                               const SizedBox(width: 18),
 
@@ -188,7 +255,7 @@ class InsightsScreen extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
-                                      "CAMPUS\nSAFETY INDEX",
+                                      "SAFE-ROUTE\nLIGHTING",
                                       style: TextStyle(
                                         color: AppColors.primaryGold,
                                         fontSize: 20,
@@ -199,7 +266,13 @@ class InsightsScreen extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
-                                      "Optimal lighting & high patrol density on primary routes",
+                                      telemetry.safeRoute == null
+                                          ? telemetry.routeError == null
+                                              ? "Choose a destination to calculate route lighting from the backend."
+                                              : "Route lighting is unavailable until the backend reconnects."
+                                          : telemetry.lightingFailureSimulation
+                                              ? "${telemetry.failedLightingPoints.length} simulated light outage(s). Coverage shows the lit share of the recommended Safe route."
+                                              : "Coverage is the share of recommended Safe-route distance marked lit by the routing network.",
                                       style: TextStyle(
                                         color: AppColors.textSecondary
                                             .withOpacity(0.9),
@@ -265,8 +338,7 @@ class InsightsScreen extends StatelessWidget {
                                       "Display smart lamp coverage intensity",
                                   icon: Icons.wb_incandescent_outlined,
                                   value: telemetry.showLightingOverlay,
-                                  onChanged: (val) =>
-                                      telemetry.toggleLightingOverlay(val),
+                                  onChanged: telemetry.toggleLightingOverlay,
                                 ),
                                 const Divider(
                                   color: Color(0x22F2DF99),
@@ -278,23 +350,22 @@ class InsightsScreen extends StatelessWidget {
                                 _buildLayerSwitchRow(
                                   title: "Crowd Activity Heatmap",
                                   subtitle:
-                                      "Display anonymous pedestrian density streams",
+                                      "Show sample pedestrian density along the route",
                                   icon: Icons.groups_outlined,
                                   value: telemetry.showCrowdOverlay,
-                                  onChanged: (val) =>
-                                      telemetry.toggleCrowdOverlay(val),
+                                  onChanged: telemetry.toggleCrowdOverlay,
                                 ),
                               ],
                             ),
                           ),
                           const SizedBox(height: 24),
 
-                          // 3. RECENT REPORTS FEED
+                          // 3. RECENT REPORTS
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text(
-                                "Recent Reports Feed",
+                                "Reports",
                                 style: TextStyle(
                                   color: AppColors.primaryGold,
                                   fontSize: 16,
@@ -308,9 +379,41 @@ class InsightsScreen extends StatelessWidget {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Recent community safety reports',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
                           const SizedBox(height: 12),
+                          if (telemetry.hazardReports.isEmpty)
+                            _buildReportCard(
+                              icon: Icons.info_outline,
+                              iconColor: AppColors.textSecondary,
+                              title: 'No reports submitted yet',
+                              timeAndLocation:
+                                  'Use Report Hazard on the Support page to add one.',
+                              status: 'Community',
+                              statusColor: AppColors.textSecondary,
+                              glowColor: Colors.transparent,
+                            ),
+                          for (final report in telemetry.hazardReports) ...[
+                            _buildReportCard(
+                              icon: Icons.warning_amber_rounded,
+                              iconColor: Colors.amber,
+                              title: '${report.category} reported',
+                              timeAndLocation:
+                                  '${report.ageLabel} • ${report.description.isEmpty ? report.locationLabel : '${report.description} • ${report.locationLabel}'}',
+                              status: 'New',
+                              statusColor: Colors.amber,
+                              glowColor: Colors.amber.withOpacity(0.12),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
 
-                          // Report 1: Dim Streetlight
+                          // Sample community reports
                           _buildReportCard(
                             icon: Icons.lightbulb_outline,
                             iconColor: AppColors.primaryGold,
@@ -504,11 +607,12 @@ class InsightsScreen extends StatelessWidget {
       ),
     );
   }
+
 }
 
 /// Custom painter rendering the glowing gradient circular radial gauge
 class _GlowingSafetyGauge extends StatelessWidget {
-  final double percentage;
+  final double? percentage;
 
   const _GlowingSafetyGauge({required this.percentage});
 
@@ -541,7 +645,7 @@ class _GlowingSafetyGauge extends StatelessWidget {
           ),
           child: Center(
             child: Text(
-              "${(percentage * 100).toInt()}%",
+              percentage == null ? '--' : "${(percentage! * 100).round()}%",
               style: const TextStyle(
                 color: Color(0xFF0C192E),
                 fontSize: 20,
@@ -556,7 +660,7 @@ class _GlowingSafetyGauge extends StatelessWidget {
 }
 
 class _GaugePainter extends CustomPainter {
-  final double percentage;
+  final double? percentage;
   _GaugePainter({required this.percentage});
 
   @override
@@ -586,7 +690,8 @@ class _GaugePainter extends CustomPainter {
       ..strokeWidth = 5.0
       ..strokeCap = StrokeCap.round;
 
-    final sweepAngle = 2 * math.pi * percentage;
+    final sweepAngle =
+        (2 * math.pi * (percentage ?? 0).clamp(0.0, 1.0)).toDouble();
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
       -math.pi / 2,
@@ -597,5 +702,6 @@ class _GaugePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _GaugePainter oldDelegate) =>
+      oldDelegate.percentage != percentage;
 }

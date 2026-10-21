@@ -80,7 +80,7 @@ class TelemetryProvider extends ChangeNotifier {
   bool _offTrackAlertDismissed = false;
   Timer? _backOnTrackTimer;
 
-  String _targetEnvironment = "localhost:8000";
+  String _targetEnvironment = "127.0.0.1:8000";
   bool _mockJsonInspector = true;
 
   bool _virtualBuddyEnabled = true;
@@ -88,6 +88,10 @@ class TelemetryProvider extends ChangeNotifier {
   bool _showHeatmap = false;
   bool _showLightingOverlay = true;
   bool _showCrowdOverlay = false;
+  bool _lightingFailureSimulation = false;
+  List<LatLng> _failedLightingPoints = const [];
+  bool _nightShiftSimulation = false;
+  final List<HazardReport> _hazardReports = [];
 
   int _selectedRouteIndex = 0;
   bool _hasSelectedRoute = false;
@@ -95,6 +99,7 @@ class TelemetryProvider extends ChangeNotifier {
   double _alphaSafetyWeight = 2.5;
   bool _avoidUnlitAlleys = true;
   bool _isNavigating = false;
+  bool _resumeNavigationAfterReroute = false;
 
   String _buddyConsoleStatus = "MONITORING";
   bool _isSosActive = false;
@@ -275,6 +280,12 @@ class TelemetryProvider extends ChangeNotifier {
   bool get showHeatmap => _showHeatmap;
   bool get showLightingOverlay => _showLightingOverlay;
   bool get showCrowdOverlay => _showCrowdOverlay;
+  bool get lightingFailureSimulation => _lightingFailureSimulation;
+  List<LatLng> get failedLightingPoints =>
+      List<LatLng>.unmodifiable(_failedLightingPoints);
+  List<HazardReport> get hazardReports =>
+      List<HazardReport>.unmodifiable(_hazardReports);
+  bool get nightShiftSimulation => _nightShiftSimulation;
   int get selectedRouteIndex => _selectedRouteIndex;
   double get alphaSafetyWeight => _alphaSafetyWeight;
   bool get avoidUnlitAlleys => _avoidUnlitAlleys;
@@ -293,6 +304,7 @@ class TelemetryProvider extends ChangeNotifier {
     if (_isSimulationMode == isSim) return;
     _isSimulationMode = isSim;
     _isNavigating = false;
+    _resumeNavigationAfterReroute = false;
     _isOffTrack = false;
     _showOffTrackModal = false;
     _showBackOnTrackBanner = false;
@@ -308,6 +320,10 @@ class TelemetryProvider extends ChangeNotifier {
     _isRouteLoading = false;
     _safeRoute = null;
     _directRoute = null;
+    if (!isSim) {
+      _lightingFailureSimulation = false;
+      _failedLightingPoints = const [];
+    }
     if (isSim) {
       _currentLat = _simulationStartLat;
       _currentLng = _simulationStartLng;
@@ -429,17 +445,18 @@ class TelemetryProvider extends ChangeNotifier {
     }
 
     final requestId = ++_routeRequestId;
+    final routeStart = LatLng(_currentLat, _currentLng);
     _isRouteLoading = true;
     _routeError = null;
     notifyListeners();
 
     final String baseUrl;
     if (kIsWeb) {
-      baseUrl = 'http://localhost:8000';
+      baseUrl = 'http://127.0.0.1:8000';
     } else if (Platform.isAndroid) {
       baseUrl = 'http://10.0.2.2:8000';
     } else {
-      baseUrl = 'http://localhost:8000';
+      baseUrl = 'http://127.0.0.1:8000';
     }
 
     try {
@@ -454,7 +471,10 @@ class TelemetryProvider extends ChangeNotifier {
           "end_lat": _destination!.latitude,
           "end_lng": _destination!.longitude,
           "alpha_safety_weight": _alphaSafetyWeight,
-          "is_recalculation": isRecalculation,
+          "lighting_failure_points": _failedLightingPoints
+              .map((point) => [point.latitude, point.longitude])
+              .toList(),
+          "is_recalculation": isRecalculation || _resumeNavigationAfterReroute,
         }),
       );
 
@@ -462,39 +482,70 @@ class TelemetryProvider extends ChangeNotifier {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        final safeRouteCoordinates = data['safe_route_coords'] as List;
+        final directRouteCoordinates = data['direct_route_coords'] as List;
+        if (safeRouteCoordinates.isEmpty || directRouteCoordinates.isEmpty) {
+          _routeError =
+              'Backend returned incomplete route data. Retry or choose another destination.';
+          return;
+        }
 
         // Map the backend JSON coordinates into LatLng objects for Flutter to draw
         _safeRoute = BackendRoute(
-          points: (data['safe_route_coords'] as List)
-              .map((c) => LatLng(c[0], c[1]))
-              .toList(),
+          points: _routePointsWithStart(
+            safeRouteCoordinates,
+            routeStart,
+          ),
           distanceMeters: data['safe_distance'].toDouble(),
           lightingScore: data['percentage_lit'] / 100.0,
           havenScore: 0.9,
         );
 
         _directRoute = BackendRoute(
-          points: (data['direct_route_coords'] as List)
-              .map((c) => LatLng(c[0], c[1]))
-              .toList(),
+          points: _routePointsWithStart(
+            directRouteCoordinates,
+            routeStart,
+          ),
           distanceMeters: data['direct_distance'].toDouble(),
           lightingScore: 0.3,
           havenScore: 0.1,
         );
 
-        if (isRecalculation) {
+        var waitingForLightingFailureRoute = false;
+        if (_lightingFailureSimulation && _failedLightingPoints.isEmpty) {
+          _failedLightingPoints =
+              _chooseLightingFailurePoints(_safeRoute!.points);
+          if (_failedLightingPoints.isNotEmpty) {
+            waitingForLightingFailureRoute = true;
+            _scheduleRouteRefresh();
+          }
+        }
+
+        final resumeNavigation = _resumeNavigationAfterReroute;
+        if ((resumeNavigation || isRecalculation) &&
+            !waitingForLightingFailureRoute) {
+          final route = _safeRoute!;
+          if (route.points.isEmpty) {
+            _routeError =
+                'Backend returned an empty Safe route. Choose another destination or retry.';
+            return;
+          }
           _selectedRouteIndex = 0;
-          _selectedRoute = _safeRoute;
-          _selectedRoutePoints = _safeRoute!.points;
+          _selectedRoute = route;
+          _selectedRoutePoints = route.points;
           _hasSelectedRoute = true;
           _isOffTrack = false;
           _showOffTrackModal = false;
           _showBackOnTrackBanner = false;
+          _isNavigating = true;
+          _resumeNavigationAfterReroute = false;
           _offTrackAlertDismissed = false;
           _lastAnnouncedTurnIndex = null;
-          _navigationInstruction =
-              'Continue on the recalculated safest route to $destinationName.';
-          _buddyConsoleStatus = "MONITORING";
+          _navigationInstruction = resumeNavigation
+              ? 'Route recalculated from your current location.'
+              : 'Continue on the recalculated safest route to $destinationName.';
+          _buddyConsoleStatus = 'MONITORING';
+          _checkRouteDeviation();
         }
       } else {
         _routeError = 'Backend returned error: ${response.statusCode}';
@@ -504,14 +555,40 @@ class TelemetryProvider extends ChangeNotifier {
       debugPrint('FastAPI route request to $baseUrl failed: $error');
       debugPrintStack(stackTrace: stackTrace);
       _routeError = kIsWeb
-          ? 'FastAPI is unreachable at $baseUrl. Check $baseUrl/docs and browser CORS/HTTPS errors.'
-          : 'FastAPI is unreachable at $baseUrl. Confirm the backend is running.';
+          ? 'FastAPI is not responding at $baseUrl. Start the backend from the backend folder and keep its terminal open.'
+          : 'FastAPI is not responding at $baseUrl. Confirm the backend is running.';
     } finally {
       if (!_isDisposed && requestId == _routeRequestId) {
         _isRouteLoading = false;
         notifyListeners();
       }
     }
+  }
+
+  List<LatLng> _routePointsWithStart(List<dynamic> coordinates, LatLng start) {
+    final points = coordinates
+        .map((coordinate) => LatLng(coordinate[0], coordinate[1]))
+        .toList();
+    if (points.isNotEmpty && _distanceBetweenMeters(start, points.first) > 1) {
+      points.insert(0, start);
+    }
+    return points;
+  }
+
+  List<LatLng> _chooseLightingFailurePoints(List<LatLng> route) {
+    final segmentCount = route.length - 1;
+    if (segmentCount <= 0) return const [];
+    final failureCount = math.min(2, segmentCount);
+    return List<LatLng>.generate(failureCount, (index) {
+      final segmentIndex =
+          ((index + 0.5) * segmentCount / failureCount).floor();
+      final start = route[segmentIndex];
+      final end = route[segmentIndex + 1];
+      return LatLng(
+        (start.latitude + end.latitude) / 2,
+        (start.longitude + end.longitude) / 2,
+      );
+    }, growable: false);
   }
 
   Future<void> recalculateSafestRoute() async {
@@ -723,6 +800,36 @@ class TelemetryProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void confirmSafeAndRecalculateRoute() {
+    if (_destination == null || !_hasCurrentLocation) {
+      _routeError =
+          'Cannot recalculate without a destination and a current location.';
+      _showOffTrackModal = false;
+      _offTrackAlertDismissed = true;
+      notifyListeners();
+      return;
+    }
+
+    _showOffTrackModal = false;
+    _showBackOnTrackBanner = false;
+    _isOffTrack = false;
+    _offTrackAlertDismissed = false;
+    _isNavigating = false;
+    _hasSelectedRoute = false;
+    _selectedRoute = null;
+    _selectedRoutePoints = const [];
+    _selectedRouteIndex = 0;
+    _safeRoute = null;
+    _directRoute = null;
+    _routeError = null;
+    _resumeNavigationAfterReroute = true;
+    _routeRequestId++;
+    _isRouteLoading = false;
+    _buddyConsoleStatus = 'RECALCULATING';
+    _scheduleRouteRefresh();
+    notifyListeners();
+  }
+
   void setBackOnTrackBanner(bool value) {
     _showBackOnTrackBanner = value;
     if (value) {
@@ -757,6 +864,23 @@ class TelemetryProvider extends ChangeNotifier {
 
   void addEmergencyContact(String name, String phone) {
     _emergencyContacts.add({"name": name, "phone": phone, "type": "custom"});
+    notifyListeners();
+  }
+
+  void submitHazardReport({
+    required String category,
+    String description = '',
+  }) {
+    _hazardReports.insert(
+      0,
+      HazardReport(
+        category: category,
+        description: description.trim(),
+        reportedAt: DateTime.now(),
+        latitude: _hasCurrentLocation ? _currentLat : null,
+        longitude: _hasCurrentLocation ? _currentLng : null,
+      ),
+    );
     notifyListeners();
   }
 
@@ -811,6 +935,39 @@ class TelemetryProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setLightingFailureSimulation(bool value) {
+    if (_lightingFailureSimulation == value) return;
+    _lightingFailureSimulation = value;
+    _failedLightingPoints = value && _safeRoute != null
+        ? _chooseLightingFailurePoints(_safeRoute!.points)
+        : const [];
+    _refreshRoutesForLightingScenario();
+    notifyListeners();
+  }
+
+  void _refreshRoutesForLightingScenario() {
+    if (_destination == null || !_hasCurrentLocation) return;
+
+    _resumeNavigationAfterReroute = _isNavigating;
+    _isNavigating = false;
+    _hasSelectedRoute = false;
+    _selectedRoute = null;
+    _selectedRoutePoints = const [];
+    _selectedRouteIndex = 0;
+    _safeRoute = null;
+    _directRoute = null;
+    _routeError = null;
+    _routeRequestId++;
+    _isRouteLoading = false;
+    _buddyConsoleStatus = 'RECALCULATING';
+    _scheduleRouteRefresh();
+  }
+
+  void setNightShiftSimulation(bool value) {
+    _nightShiftSimulation = value;
+    notifyListeners();
+  }
+
   void setSelectedRoute(int index) {
     selectRoute(index);
   }
@@ -860,6 +1017,7 @@ class TelemetryProvider extends ChangeNotifier {
 
   void stopNavigation() {
     _isNavigating = false;
+    _resumeNavigationAfterReroute = false;
     _isOffTrack = false;
     _showOffTrackModal = false;
     _showBackOnTrackBanner = false;
@@ -978,4 +1136,31 @@ class AvatarPosition {
   final double heading;
 
   LatLng get point => LatLng(latitude, longitude);
+}
+
+class HazardReport {
+  const HazardReport({
+    required this.category,
+    required this.description,
+    required this.reportedAt,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  final String category;
+  final String description;
+  final DateTime reportedAt;
+  final double? latitude;
+  final double? longitude;
+
+  String get locationLabel => latitude == null || longitude == null
+      ? 'Location unavailable'
+      : '${latitude!.toStringAsFixed(4)}, ${longitude!.toStringAsFixed(4)}';
+
+  String get ageLabel {
+    final minutesAgo = DateTime.now().difference(reportedAt).inMinutes;
+    if (minutesAgo < 1) return 'Just now';
+    if (minutesAgo < 60) return '$minutesAgo min ago';
+    return '${minutesAgo ~/ 60} hr ago';
+  }
 }

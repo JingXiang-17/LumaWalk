@@ -23,9 +23,17 @@ run `flutter run` to select a target interactively. For a production web build:
 flutter build web
 ```
 
-Start the FastAPI backend separately before requesting routes. It should be
-available at `http://localhost:8000`. When running on an Android emulator, the
-frontend uses `http://10.0.2.2:8000` to reach the backend on the host machine.
+Start the FastAPI backend separately before requesting routes. From the
+repository's `backend` directory, run:
+
+```powershell
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Keep that terminal open while using the app. Flutter web connects to
+`http://127.0.0.1:8000`; Android emulators use `http://10.0.2.2:8000` to reach
+the backend on the host machine. If the route panel says FastAPI is not
+responding, the backend process is not listening on port 8000.
 
 ## Using the map
 

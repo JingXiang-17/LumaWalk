@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/telemetry_provider.dart';
@@ -6,14 +9,63 @@ import '../theme/app_colors.dart';
 class SupportScreen extends StatelessWidget {
   const SupportScreen({super.key});
 
-  void _showReportHazardDialog(BuildContext context) {
-    String selectedType = 'Poor Lighting';
-    final controller = TextEditingController();
-
-    showDialog(
+  void _showActionDialog(
+    BuildContext context, {
+    required String title,
+    required String message,
+    IconData icon = Icons.info_outline,
+    Color iconColor = AppColors.primaryGold,
+  }) {
+    showDialog<void>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.inputBackground,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: iconColor.withOpacity(0.55)),
+        ),
+        icon: Icon(icon, color: iconColor, size: 32),
+        title: Text(
+          title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AppColors.primaryGold,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: AppColors.textMain, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text(
+              'Close',
+              style: TextStyle(color: AppColors.primaryGold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showReportHazardDialog(
+    BuildContext context,
+    TelemetryProvider telemetry,
+  ) {
+    const customCategory = 'Other / New Hazard';
+    var selectedType = 'Poor Lighting';
+    final categoryController = TextEditingController();
+    final descriptionController = TextEditingController();
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
           backgroundColor: AppColors.inputBackground,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
@@ -24,7 +76,7 @@ class SupportScreen extends StatelessWidget {
               Icon(Icons.warning_amber_rounded, color: Colors.amber),
               SizedBox(width: 8),
               Text(
-                "Report Hazard",
+                'Report Hazard',
                 style: TextStyle(
                   color: AppColors.primaryGold,
                   fontSize: 18,
@@ -33,94 +85,250 @@ class SupportScreen extends StatelessWidget {
               ),
             ],
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "Hazard Category",
-                style: TextStyle(color: AppColors.textMain, fontSize: 13),
+          content: SizedBox(
+            width: 460,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.68,
               ),
-              const SizedBox(height: 6),
-              DropdownButtonFormField<String>(
-                value: selectedType,
-                dropdownColor: AppColors.inputBackground,
-                style: const TextStyle(
-                  color: AppColors.primaryGold,
-                  fontWeight: FontWeight.bold,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Choose a category or add a new hazard. Reports are saved in this demo.',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Hazard category',
+                      style: TextStyle(color: AppColors.textMain, fontSize: 13),
+                    ),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      value: selectedType,
+                      dropdownColor: AppColors.inputBackground,
+                      style: const TextStyle(
+                        color: AppColors.primaryGold,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: AppColors.background,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      items: [
+                        'Poor Lighting',
+                        'Pathway Obstacle',
+                        'Suspicious Activity',
+                        'Broken Callbox',
+                        'Unsafe Alleyway',
+                        customCategory,
+                      ]
+                          .map((type) =>
+                              DropdownMenuItem(value: type, child: Text(type)))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setDialogState(() => selectedType = value);
+                        }
+                      },
+                    ),
+                    if (selectedType == customCategory) ...[
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: categoryController,
+                        style: const TextStyle(
+                          color: AppColors.textMain,
+                          fontSize: 13,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'New hazard category',
+                          hintText: 'e.g. Flooded walkway',
+                          labelStyle: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                          filled: true,
+                          fillColor: AppColors.background,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: descriptionController,
+                      minLines: 2,
+                      maxLines: 4,
+                      style: const TextStyle(
+                        color: AppColors.textMain,
+                        fontSize: 13,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Details or location (optional)',
+                        hintText: 'Describe what walkers should know...',
+                        labelStyle: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                        ),
+                        filled: true,
+                        fillColor: AppColors.background,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Report history',
+                            style: TextStyle(
+                              color: AppColors.primaryGold,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${telemetry.hazardReports.length}',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (telemetry.hazardReports.isEmpty)
+                      const Text(
+                        'No hazards reported yet.',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                        ),
+                      )
+                    else
+                      ...telemetry.hazardReports.map(
+                        (report) => Container(
+                          margin: const EdgeInsets.only(bottom: 7),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.background,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: AppColors.primaryGold.withOpacity(0.18),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.amber,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      report.category,
+                                      style: const TextStyle(
+                                        color: AppColors.textMain,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      [
+                                        report.ageLabel,
+                                        report.description,
+                                        report.locationLabel,
+                                      ].where((part) => part.isNotEmpty).join(' • '),
+                                      style: const TextStyle(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-                decoration: InputDecoration(
-                  filled: true,
-                  fillColor: AppColors.background,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                items: [
-                  'Poor Lighting',
-                  'Pathway Obstacle',
-                  'Suspicious Activity',
-                  'Broken Callbox',
-                  'Unsafe Alleyway'
-                ]
-                    .map((type) =>
-                        DropdownMenuItem(value: type, child: Text(type)))
-                    .toList(),
-                onChanged: (val) {
-                  if (val != null) setDialogState(() => selectedType = val);
-                },
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                style: const TextStyle(color: AppColors.textMain, fontSize: 13),
-                decoration: InputDecoration(
-                  hintText: "Location or description details...",
-                  hintStyle: const TextStyle(
-                      color: AppColors.textSecondary, fontSize: 12),
-                  filled: true,
-                  fillColor: AppColors.background,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("Cancel",
-                  style: TextStyle(color: AppColors.textSecondary)),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.amber.shade800,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               onPressed: () {
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                        "Hazard ($selectedType) dispatched to campus safety patrol."),
-                    backgroundColor: Colors.amber.shade900,
-                  ),
+                final category = selectedType == customCategory
+                    ? categoryController.text.trim()
+                    : selectedType;
+                if (category.isEmpty) return;
+                telemetry.submitHazardReport(
+                  category: category,
+                  description: descriptionController.text,
+                );
+                Navigator.pop(dialogContext);
+                _showActionDialog(
+                  context,
+                  title: 'Report added',
+                  message:
+                      '$category was added to Report History and Community Reports. This demo does not dispatch reports to campus safety.',
+                  icon: Icons.check_circle_outline,
+                  iconColor: Colors.amber,
                 );
               },
-              child: const Text("Submit",
-                  style: TextStyle(
-                      color: Colors.black, fontWeight: FontWeight.bold)),
+              child: const Text(
+                'Submit Report',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ],
         ),
       ),
-    );
+    ).whenComplete(() {
+      categoryController.dispose();
+      descriptionController.dispose();
+    });
   }
 
   void _showCenteredContactsDialog(
@@ -209,9 +417,13 @@ class SupportScreen extends StatelessWidget {
                             color: AppColors.routeSafe, size: 20),
                         onPressed: () {
                           Navigator.pop(dialogCtx);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                                content: Text("Calling $name ($phone)...")),
+                          _showActionDialog(
+                            context,
+                            title: 'Call contact',
+                            message:
+                                'This demo does not place calls. To reach $name, dial $phone using your device.',
+                            icon: Icons.phone_outlined,
+                            iconColor: AppColors.routeSafe,
                           );
                         },
                       ),
@@ -298,10 +510,11 @@ class SupportScreen extends StatelessWidget {
                 telemetry.addEmergencyContact(
                     nameController.text, phoneController.text);
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                      content:
-                          Text("Added ${nameController.text} to contacts.")),
+                _showActionDialog(
+                  context,
+                  title: 'Contact added',
+                  message: '${nameController.text} is now in your contacts.',
+                  icon: Icons.contact_phone_outlined,
                 );
               }
             },
@@ -312,6 +525,67 @@ class SupportScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _runDeterrentSiren(BuildContext context) async {
+    final player = AudioPlayer();
+    try {
+      await player.setReleaseMode(ReleaseMode.loop);
+      await player.play(AssetSource('audio/siren.wav'));
+      if (!context.mounted) return;
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: const Color(0xFF2B1015),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+            side: const BorderSide(color: Colors.redAccent),
+          ),
+          icon: const Icon(Icons.volume_up, color: Colors.redAccent, size: 40),
+          title: const Text(
+            'Siren is sounding',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: const Text(
+            'The alarm will sound until you stop it or close this window. It does not contact emergency services.',
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+              ),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'Stop siren',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Could not play the deterrent siren: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (context.mounted) {
+        _showActionDialog(
+          context,
+          title: 'Siren unavailable',
+          message: 'The alarm audio could not be played: $error',
+          icon: Icons.volume_off,
+          iconColor: Colors.redAccent,
+        );
+      }
+    } finally {
+      await player.stop();
+      await player.dispose();
+    }
   }
 
   void _triggerDeterrentSiren(BuildContext context) {
@@ -325,11 +599,11 @@ class SupportScreen extends StatelessWidget {
         ),
         icon: const Icon(Icons.volume_up, color: Colors.redAccent, size: 40),
         title: const Text(
-          "Loud Siren & Strobe Alarm",
+          "Loud Siren Alarm",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         content: const Text(
-          "Trigger maximum volume alarm tone and strobe alert to deter nearby threats.",
+          "Play an audible alarm until you stop it. The sound level depends on your device volume.",
           style: TextStyle(color: Colors.white70, fontSize: 13),
           textAlign: TextAlign.center,
         ),
@@ -343,12 +617,7 @@ class SupportScreen extends StatelessWidget {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () {
               Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("🔊 Deterrent Siren Activated!"),
-                  backgroundColor: Colors.red,
-                ),
-              );
+              unawaited(_runDeterrentSiren(context));
             },
             child: const Text("Sound Siren",
                 style: TextStyle(
@@ -634,12 +903,14 @@ class SupportScreen extends StatelessWidget {
                                   icon: Icons.shield_outlined,
                                   iconColor: AppColors.primaryGold,
                                   title: "Campus Patrol",
-                                  subtitle: "Direct Call Escort",
+                                  subtitle: "Escort request (demo)",
                                   onTap: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                          content: Text(
-                                              "Calling Campus Security Escort...")),
+                                    _showActionDialog(
+                                      context,
+                                      title: 'Campus Patrol',
+                                      message:
+                                          'This button is a demo placeholder. It does not call or dispatch campus patrol. Open Contacts to reach a listed number.',
+                                      icon: Icons.shield_outlined,
                                     );
                                   },
                                 ),
@@ -678,7 +949,8 @@ class SupportScreen extends StatelessWidget {
                                   iconColor: Colors.amber,
                                   title: "Report Hazard",
                                   subtitle: "Log Incident",
-                                  onTap: () => _showReportHazardDialog(context),
+                                  onTap: () =>
+                                      _showReportHazardDialog(context, telemetry),
                                 ),
                               ),
                             ],
@@ -753,12 +1025,12 @@ class SupportScreen extends StatelessWidget {
                                           Colors.cyanAccent.withOpacity(0.06),
                                     ),
                                     onPressed: () {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                              "Check-in recorded: User reported safe."),
-                                        ),
+                                      _showActionDialog(
+                                        context,
+                                        title: "You're checked in",
+                                        message:
+                                            'Your safe check-in was recorded in this demo.',
+                                        icon: Icons.check_circle_outline,
                                       );
                                     },
                                     child: const Text(

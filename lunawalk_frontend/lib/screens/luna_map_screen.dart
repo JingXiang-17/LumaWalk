@@ -307,9 +307,23 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
     }
   }
 
+  List<LatLng> _sampleRoutePoints(List<LatLng> points, {int maxPoints = 12}) {
+    if (points.length <= maxPoints) return points;
+    final lastIndex = points.length - 1;
+    return List<LatLng>.generate(
+      maxPoints,
+      (index) => points[(index * lastIndex / (maxPoints - 1)).round()],
+      growable: false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final telemetry = _telemetry;
+    final routeOverlayPoints =
+        telemetry.hasDestination && telemetry.safeRoute != null
+            ? _sampleRoutePoints(telemetry.routePoints)
+            : const <LatLng>[];
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -450,6 +464,23 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                           ],
                         ),
 
+                        if (telemetry.showCrowdOverlay &&
+                            routeOverlayPoints.isNotEmpty)
+                          CircleLayer(
+                            circles: [
+                              for (final point in routeOverlayPoints)
+                                CircleMarker(
+                                  point: point,
+                                  radius: 65,
+                                  useRadiusInMeter: true,
+                                  color: Colors.cyanAccent.withOpacity(0.18),
+                                  borderColor:
+                                      Colors.cyanAccent.withOpacity(0.45),
+                                  borderStrokeWidth: 1.2,
+                                ),
+                            ],
+                          ),
+
                         // USER AVATAR / NAVIGATION PUCK
                         ValueListenableBuilder<AvatarPosition>(
                           valueListenable: telemetry.avatarPosition,
@@ -504,6 +535,77 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                         // DECLUTTERED WAZE-STYLE PINS (Destination + Safe Havens)
                         MarkerLayer(
                           markers: [
+                            for (final point in telemetry.failedLightingPoints)
+                              Marker(
+                                point: point,
+                                width: 32,
+                                height: 32,
+                                child: Tooltip(
+                                  message: 'Simulated broken streetlight',
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Container(
+                                        width: 28,
+                                        height: 28,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: const Color(0xFF2B1015),
+                                          border: Border.all(
+                                            color: Colors.redAccent,
+                                            width: 1.8,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.redAccent
+                                                  .withOpacity(0.45),
+                                              blurRadius: 8,
+                                            ),
+                                          ],
+                                        ),
+                                        child: const Icon(
+                                          Icons.lightbulb_outline,
+                                          color: Colors.redAccent,
+                                          size: 17,
+                                        ),
+                                      ),
+                                      const Positioned(
+                                        right: -2,
+                                        top: -3,
+                                        child: Icon(
+                                          Icons.cancel,
+                                          color: Colors.white,
+                                          size: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            if (telemetry.showLightingOverlay)
+                              for (final point in routeOverlayPoints)
+                                Marker(
+                                  point: point,
+                                  width: 24,
+                                  height: 24,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: AppColors.background
+                                          .withOpacity(0.88),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: AppColors.primaryGold
+                                            .withOpacity(0.85),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.lightbulb_outline,
+                                      color: AppColors.primaryGold,
+                                      size: 15,
+                                    ),
+                                  ),
+                                ),
                             if (telemetry.hasDestination)
                               Marker(
                                 point: LatLng(
@@ -876,7 +978,7 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  "You are off the selected ${telemetry.selectedRouteIndex == 0 ? "Safe" : "Direct"} route. Are you safe?",
+                                  "You are off the selected ${telemetry.selectedRouteIndex == 0 ? "Safe" : "Direct"} route. Are you safe? Confirming will calculate a new route from your current location.",
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                       color: AppColors.textMain, fontSize: 13),
@@ -889,11 +991,8 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                         style: ElevatedButton.styleFrom(
                                             backgroundColor:
                                                 AppColors.primaryGold),
-                                        onPressed: () {
-                                          telemetry.dismissOffTrackModal();
-                                          unawaited(telemetry
-                                              .recalculateSafestRoute());
-                                        },
+                                        onPressed: telemetry
+                                            .confirmSafeAndRecalculateRoute,
                                         child: const Text("I'm Safe",
                                             style: TextStyle(
                                                 color: Colors.black,
@@ -1187,8 +1286,17 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                                           ),
                                         ),
                                         if (telemetry.routeError!.startsWith(
-                                          'FastAPI is unreachable',
-                                        ))
+                                              'FastAPI is not responding',
+                                            ) ||
+                                            telemetry.routeError!.startsWith(
+                                              'FastAPI is unreachable',
+                                            ) ||
+                                            telemetry.routeError!.startsWith(
+                                              'Backend returned error:',
+                                            ) ||
+                                            telemetry.routeError!.startsWith(
+                                              'Backend returned incomplete route data.',
+                                            ))
                                           Align(
                                             alignment: Alignment.centerLeft,
                                             child: TextButton.icon(

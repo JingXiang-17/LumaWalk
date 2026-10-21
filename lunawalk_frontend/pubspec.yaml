@@ -16,6 +16,7 @@ dependencies:
   http: ^1.1.0
   geolocator: ^14.1.1
   flutter_tts: ^4.2.5
+  audioplayers: ^6.1.0
   shared_preferences: ^2.5.6
 
 dev_dependencies:
@@ -27,4 +28,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/audio/
     - assets/mock_data/real_havens_petaling_jaya.geojson

@@ -19,18 +19,38 @@ def get_safe_route(request: RouteRequest):
         raise HTTPException(status_code=400, detail="Location is outside the supported Petaling Jaya map area.")
 
     G = algo.route_graph
+    if G is None:
+        raise HTTPException(status_code=503, detail="Routing network is not loaded.")
+
+    for latitude, longitude in request.lighting_failure_points:
+        if not is_within_pj(latitude, longitude):
+            raise HTTPException(
+                status_code=400,
+                detail="Lighting failure is outside the supported Petaling Jaya map area.",
+            )
+
+    routing_graph = algo.apply_lighting_failures(
+        G, request.lighting_failure_points
+    )
     
     # 2. Snap incoming GPS coordinates to the nearest graph nodes
-    start_node = algo.get_closest_node(G, request.start_lat, request.start_lng)
-    end_node = algo.get_closest_node(G, request.end_lat, request.end_lng)
+    start_node = algo.get_closest_node(routing_graph, request.start_lat, request.start_lng)
+    end_node = algo.get_closest_node(routing_graph, request.end_lat, request.end_lng)
     
     if start_node is None or end_node is None:
         raise HTTPException(status_code=400, detail="Could not snap to a valid route node.")
     
     # 3. Calculate both routes using the snapped node IDs
-    safe_path, safe_distance = algo.find_safest_route(G, start_node, end_node)
+    safe_path, safe_distance = algo.find_safest_route(
+        routing_graph,
+        start_node,
+        end_node,
+        allow_longer_safe_detour=bool(request.lighting_failure_points),
+    )
     
-    weight_fn = lambda u, v, d: float(list(d.values())[0].get('length', 1.0))
+    weight_fn = lambda u, v, d: float(
+        algo.edge_attributes(d).get('length', 1.0)
+    )
     direct_path = nx.shortest_path(G, start_node, end_node, weight=weight_fn)
     direct_distance = nx.shortest_path_length(G, start_node, end_node, weight=weight_fn)
     
@@ -44,7 +64,7 @@ def get_safe_route(request: RouteRequest):
         u = safe_path[i]
         v = safe_path[i+1]
         # Bypass the string/int key issue by forcing a list conversion
-        edge_data = list(G[u][v].values())[0]
+        edge_data = algo.edge_attributes(routing_graph[u][v])
         # The data pipeline uses a float metric 'w_light', not a boolean 'is_lit'
         if float(edge_data.get('w_light', 0.0)) >= 0.5:
             lit_distance += float(edge_data.get('length', 0.0))

@@ -3,6 +3,11 @@ import math
 
 route_graph = None
 
+def edge_attributes(data):
+    if data and all(isinstance(value, dict) for value in data.values()):
+        return next(iter(data.values()))
+    return data
+
 def create_dummy_graph():
     G = nx.Graph()
     for i in range(1, 11):
@@ -23,10 +28,12 @@ def create_dummy_graph():
     return G
 
 def custom_safety_cost(u, v, d):
-    # Extract the first parallel street from the MultiGraph dictionary
-    edge_data = list(d.values())[0]
+    edge_data = edge_attributes(d)
     
     distance = float(edge_data.get('length', 1.0))
+    if edge_data.get('lighting_failure', False):
+        return distance * 1_000_000
+
     w_light = float(edge_data.get('w_light', 0.1))
     w_haven = float(edge_data.get('w_haven', 0.1))
     safety_score = (w_light + w_haven) / 2
@@ -34,9 +41,12 @@ def custom_safety_cost(u, v, d):
     safe_s = max(safety_score, 0.01) 
     return distance / safe_s
 
-def find_safest_route(G, start_node, end_node):
-    # Extract the inner dictionary inside the lambda too!
-    weight_fn = lambda u, v, d: float(list(d.values())[0].get('length', 1.0))
+def find_safest_route(
+    G, start_node, end_node, *, allow_longer_safe_detour=False
+):
+    weight_fn = lambda u, v, d: float(
+        edge_attributes(d).get('length', 1.0)
+    )
     direct_distance = nx.shortest_path_length(G, start_node, end_node, weight=weight_fn)
     max_allowed_distance = direct_distance * 1.25
     
@@ -47,13 +57,41 @@ def find_safest_route(G, start_node, end_node):
         u = safe_path[i]
         v = safe_path[i+1]
         # Bypass the string/int key issue by forcing a list conversion
-        edge_data = list(G[u][v].values())[0]
+        edge_data = edge_attributes(G[u][v])
         safe_distance += float(edge_data.get('length', 0.0))
         
-    if safe_distance > max_allowed_distance:
+    if safe_distance > max_allowed_distance and not allow_longer_safe_detour:
         return nx.shortest_path(G, start_node, end_node, weight=weight_fn), direct_distance
         
     return safe_path, safe_distance
+
+def apply_lighting_failures(G, failure_points):
+    """Return a request-local graph copy with edges beside failed lamps disabled."""
+    if not failure_points:
+        return G
+
+    affected_nodes = {
+        get_closest_node(G, latitude, longitude)
+        for latitude, longitude in failure_points
+    }
+    affected_nodes.discard(None)
+    graph = G.copy()
+
+    if graph.is_multigraph():
+        edges = list(graph.edges(keys=True))
+        for start, end, key in edges:
+            if start in affected_nodes or end in affected_nodes:
+                edge_data = graph[start][end][key]
+                edge_data['w_light'] = 0.0
+                edge_data['lighting_failure'] = True
+    else:
+        for start, end in list(graph.edges()):
+            if start in affected_nodes or end in affected_nodes:
+                edge_data = graph[start][end]
+                edge_data['w_light'] = 0.0
+                edge_data['lighting_failure'] = True
+
+    return graph
 
 def get_closest_node(G, lat, lng):
     """Snaps raw GPS coordinates to the nearest valid graph node."""

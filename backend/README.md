@@ -36,9 +36,9 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Replace `C:\path\to\LumaWalk` with the location of your repository. Keep this
-terminal open while using the Flutter app; Chrome's `localhost:8000` requests
-require the backend server to be running. The API is available at
-`http://127.0.0.1:8000`.
+terminal open while using the Flutter app; browser requests to
+`http://127.0.0.1:8000` require the backend server to be running. The API is
+available at that address.
 
 Useful local URLs:
 
@@ -69,6 +69,11 @@ Accepts start and end coordinates inside the supported Petaling Jaya map area:
 ```
 
 The response includes the safety-aware route, direct route, distances, percentage of the route that is lit, and estimated detour time.
+
+Simulation clients may also include up to two `[latitude, longitude]` entries
+in `lighting_failure_points`. The backend applies those outages to a
+request-local network copy and recalculates the Safe route without changing the
+shared map graph.
 
 ### Start a buddy session
 

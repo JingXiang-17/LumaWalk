@@ -75,7 +75,7 @@ flutter run -d chrome
 ```
 
 Use another device ID from `flutter devices` when needed. The frontend calls
-the backend at `http://localhost:8000`; Android emulators use
+the backend at `http://127.0.0.1:8000`; Android emulators use
 `http://10.0.2.2:8000`.
 
 ### 3. Run checks

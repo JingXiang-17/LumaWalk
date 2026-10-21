@@ -65,7 +65,7 @@ selection, local safe-haven GeoJSON markers, navigation simulation, telemetry,
 insights, support, and settings screens.
 
 The frontend uses `flutter_map`, `latlong2`, Provider, `http`, Geolocator, and
-Flutter TTS. It calls the backend at `localhost:8000` on desktop/web and uses
+Flutter TTS. It calls the backend at `127.0.0.1:8000` on desktop/web and uses
 `10.0.2.2:8000` from an Android emulator.
 
 ## Shared Contracts
