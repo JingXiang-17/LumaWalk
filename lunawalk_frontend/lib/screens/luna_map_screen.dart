@@ -535,53 +535,6 @@ class _LunaMapScreenState extends State<LunaMapScreen> {
                         // DECLUTTERED WAZE-STYLE PINS (Destination + Safe Havens)
                         MarkerLayer(
                           markers: [
-                            for (final point in telemetry.failedLightingPoints)
-                              Marker(
-                                point: point,
-                                width: 32,
-                                height: 32,
-                                child: Tooltip(
-                                  message: 'Simulated broken streetlight',
-                                  child: Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      Container(
-                                        width: 28,
-                                        height: 28,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: const Color(0xFF2B1015),
-                                          border: Border.all(
-                                            color: Colors.redAccent,
-                                            width: 1.8,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.redAccent
-                                                  .withOpacity(0.45),
-                                              blurRadius: 8,
-                                            ),
-                                          ],
-                                        ),
-                                        child: const Icon(
-                                          Icons.lightbulb_outline,
-                                          color: Colors.redAccent,
-                                          size: 17,
-                                        ),
-                                      ),
-                                      const Positioned(
-                                        right: -2,
-                                        top: -3,
-                                        child: Icon(
-                                          Icons.cancel,
-                                          color: Colors.white,
-                                          size: 12,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
                             if (telemetry.showLightingOverlay)
                               for (final point in routeOverlayPoints)
                                 Marker(

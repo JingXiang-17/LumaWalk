@@ -88,9 +88,6 @@ class TelemetryProvider extends ChangeNotifier {
   bool _showHeatmap = false;
   bool _showLightingOverlay = true;
   bool _showCrowdOverlay = false;
-  bool _lightingFailureSimulation = false;
-  List<LatLng> _failedLightingPoints = const [];
-  bool _nightShiftSimulation = false;
   final List<HazardReport> _hazardReports = [];
 
   int _selectedRouteIndex = 0;
@@ -280,12 +277,8 @@ class TelemetryProvider extends ChangeNotifier {
   bool get showHeatmap => _showHeatmap;
   bool get showLightingOverlay => _showLightingOverlay;
   bool get showCrowdOverlay => _showCrowdOverlay;
-  bool get lightingFailureSimulation => _lightingFailureSimulation;
-  List<LatLng> get failedLightingPoints =>
-      List<LatLng>.unmodifiable(_failedLightingPoints);
   List<HazardReport> get hazardReports =>
       List<HazardReport>.unmodifiable(_hazardReports);
-  bool get nightShiftSimulation => _nightShiftSimulation;
   int get selectedRouteIndex => _selectedRouteIndex;
   double get alphaSafetyWeight => _alphaSafetyWeight;
   bool get avoidUnlitAlleys => _avoidUnlitAlleys;
@@ -320,10 +313,6 @@ class TelemetryProvider extends ChangeNotifier {
     _isRouteLoading = false;
     _safeRoute = null;
     _directRoute = null;
-    if (!isSim) {
-      _lightingFailureSimulation = false;
-      _failedLightingPoints = const [];
-    }
     if (isSim) {
       _currentLat = _simulationStartLat;
       _currentLng = _simulationStartLng;
@@ -471,9 +460,6 @@ class TelemetryProvider extends ChangeNotifier {
           "end_lat": _destination!.latitude,
           "end_lng": _destination!.longitude,
           "alpha_safety_weight": _alphaSafetyWeight,
-          "lighting_failure_points": _failedLightingPoints
-              .map((point) => [point.latitude, point.longitude])
-              .toList(),
           "is_recalculation": isRecalculation || _resumeNavigationAfterReroute,
         }),
       );
@@ -511,19 +497,8 @@ class TelemetryProvider extends ChangeNotifier {
           havenScore: 0.1,
         );
 
-        var waitingForLightingFailureRoute = false;
-        if (_lightingFailureSimulation && _failedLightingPoints.isEmpty) {
-          _failedLightingPoints =
-              _chooseLightingFailurePoints(_safeRoute!.points);
-          if (_failedLightingPoints.isNotEmpty) {
-            waitingForLightingFailureRoute = true;
-            _scheduleRouteRefresh();
-          }
-        }
-
         final resumeNavigation = _resumeNavigationAfterReroute;
-        if ((resumeNavigation || isRecalculation) &&
-            !waitingForLightingFailureRoute) {
+        if (resumeNavigation || isRecalculation) {
           final route = _safeRoute!;
           if (route.points.isEmpty) {
             _routeError =
@@ -573,22 +548,6 @@ class TelemetryProvider extends ChangeNotifier {
       points.insert(0, start);
     }
     return points;
-  }
-
-  List<LatLng> _chooseLightingFailurePoints(List<LatLng> route) {
-    final segmentCount = route.length - 1;
-    if (segmentCount <= 0) return const [];
-    final failureCount = math.min(2, segmentCount);
-    return List<LatLng>.generate(failureCount, (index) {
-      final segmentIndex =
-          ((index + 0.5) * segmentCount / failureCount).floor();
-      final start = route[segmentIndex];
-      final end = route[segmentIndex + 1];
-      return LatLng(
-        (start.latitude + end.latitude) / 2,
-        (start.longitude + end.longitude) / 2,
-      );
-    }, growable: false);
   }
 
   Future<void> recalculateSafestRoute() async {
@@ -932,39 +891,6 @@ class TelemetryProvider extends ChangeNotifier {
 
   void toggleCrowdOverlay([bool? value]) {
     _showCrowdOverlay = value ?? !_showCrowdOverlay;
-    notifyListeners();
-  }
-
-  void setLightingFailureSimulation(bool value) {
-    if (_lightingFailureSimulation == value) return;
-    _lightingFailureSimulation = value;
-    _failedLightingPoints = value && _safeRoute != null
-        ? _chooseLightingFailurePoints(_safeRoute!.points)
-        : const [];
-    _refreshRoutesForLightingScenario();
-    notifyListeners();
-  }
-
-  void _refreshRoutesForLightingScenario() {
-    if (_destination == null || !_hasCurrentLocation) return;
-
-    _resumeNavigationAfterReroute = _isNavigating;
-    _isNavigating = false;
-    _hasSelectedRoute = false;
-    _selectedRoute = null;
-    _selectedRoutePoints = const [];
-    _selectedRouteIndex = 0;
-    _safeRoute = null;
-    _directRoute = null;
-    _routeError = null;
-    _routeRequestId++;
-    _isRouteLoading = false;
-    _buddyConsoleStatus = 'RECALCULATING';
-    _scheduleRouteRefresh();
-  }
-
-  void setNightShiftSimulation(bool value) {
-    _nightShiftSimulation = value;
     notifyListeners();
   }
 

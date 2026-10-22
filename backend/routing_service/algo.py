@@ -31,9 +31,6 @@ def custom_safety_cost(u, v, d):
     edge_data = edge_attributes(d)
     
     distance = float(edge_data.get('length', 1.0))
-    if edge_data.get('lighting_failure', False):
-        return distance * 1_000_000
-
     w_light = float(edge_data.get('w_light', 0.1))
     w_haven = float(edge_data.get('w_haven', 0.1))
     safety_score = (w_light + w_haven) / 2
@@ -41,9 +38,7 @@ def custom_safety_cost(u, v, d):
     safe_s = max(safety_score, 0.01) 
     return distance / safe_s
 
-def find_safest_route(
-    G, start_node, end_node, *, allow_longer_safe_detour=False
-):
+def find_safest_route(G, start_node, end_node):
     weight_fn = lambda u, v, d: float(
         edge_attributes(d).get('length', 1.0)
     )
@@ -60,38 +55,10 @@ def find_safest_route(
         edge_data = edge_attributes(G[u][v])
         safe_distance += float(edge_data.get('length', 0.0))
         
-    if safe_distance > max_allowed_distance and not allow_longer_safe_detour:
+    if safe_distance > max_allowed_distance:
         return nx.shortest_path(G, start_node, end_node, weight=weight_fn), direct_distance
         
     return safe_path, safe_distance
-
-def apply_lighting_failures(G, failure_points):
-    """Return a request-local graph copy with edges beside failed lamps disabled."""
-    if not failure_points:
-        return G
-
-    affected_nodes = {
-        get_closest_node(G, latitude, longitude)
-        for latitude, longitude in failure_points
-    }
-    affected_nodes.discard(None)
-    graph = G.copy()
-
-    if graph.is_multigraph():
-        edges = list(graph.edges(keys=True))
-        for start, end, key in edges:
-            if start in affected_nodes or end in affected_nodes:
-                edge_data = graph[start][end][key]
-                edge_data['w_light'] = 0.0
-                edge_data['lighting_failure'] = True
-    else:
-        for start, end in list(graph.edges()):
-            if start in affected_nodes or end in affected_nodes:
-                edge_data = graph[start][end]
-                edge_data['w_light'] = 0.0
-                edge_data['lighting_failure'] = True
-
-    return graph
 
 def get_closest_node(G, lat, lng):
     """Snaps raw GPS coordinates to the nearest valid graph node."""

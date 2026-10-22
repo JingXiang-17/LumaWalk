@@ -70,11 +70,6 @@ Accepts start and end coordinates inside the supported Petaling Jaya map area:
 
 The response includes the safety-aware route, direct route, distances, percentage of the route that is lit, and estimated detour time.
 
-Simulation clients may also include up to two `[latitude, longitude]` entries
-in `lighting_failure_points`. The backend applies those outages to a
-request-local network copy and recalculates the Safe route without changing the
-shared map graph.
-
 ### Start a buddy session
 
 `POST /api/v1/buddy/session/start`

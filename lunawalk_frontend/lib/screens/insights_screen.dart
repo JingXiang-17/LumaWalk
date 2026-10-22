@@ -7,56 +7,6 @@ import '../theme/app_colors.dart';
 class InsightsScreen extends StatelessWidget {
   const InsightsScreen({super.key});
 
-  void _showSimulationStatus(
-    BuildContext context, {
-    required String title,
-    required bool enabled,
-    required String description,
-  }) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.inputBackground,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: BorderSide(color: AppColors.primaryGold.withOpacity(0.5)),
-        ),
-        title: Row(
-          children: [
-            Icon(
-              enabled ? Icons.play_circle_outline : Icons.pause_circle_outline,
-              color: enabled ? AppColors.routeSafe : AppColors.textSecondary,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                enabled ? '$title is on' : '$title is off',
-                style: const TextStyle(
-                  color: AppColors.primaryGold,
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          description,
-          style: const TextStyle(color: AppColors.textMain, fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text(
-              'Close',
-              style: TextStyle(color: AppColors.primaryGold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final telemetry = Provider.of<TelemetryProvider>(context);
@@ -107,132 +57,15 @@ class InsightsScreen extends StatelessWidget {
                               letterSpacing: 0.5,
                             ),
                           ),
-                          const SizedBox(height: 22),
-
-                          // SIMULATION ONLY: ENVIRONMENTAL INJECTION (Maintained from your logic)
-                          if (telemetry.isSimulationMode) ...[
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0x33121F3D),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: AppColors.primaryGold.withOpacity(0.6),
-                                  width: 1.2,
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Row(
-                                    children: [
-                                      Icon(
-                                        Icons.science,
-                                        color: AppColors.primaryGold,
-                                        size: 18,
-                                      ),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        "Simulation Tools: Data Injection",
-                                        style: TextStyle(
-                                          color: AppColors.primaryGold,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: ElevatedButton.icon(
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor:
-                                                const Color(0xFF141D32),
-                                            side: const BorderSide(
-                                                color: Colors.amber),
-                                            padding: const EdgeInsets.symmetric(
-                                                vertical: 8),
-                                          ),
-                                          onPressed: () {
-                                            final enabled = !telemetry
-                                                .lightingFailureSimulation;
-                                            telemetry
-                                                .setLightingFailureSimulation(
-                                                    enabled);
-                                            _showSimulationStatus(
-                                              context,
-                                              title: 'Lighting failure',
-                                              enabled: enabled,
-                                              description: enabled
-                                                  ? 'One or two lights on the route are marked broken. Safe route lighting and route recommendations are recalculated around the outages.'
-                                                  : 'The simulated light outages are cleared and routes are recalculated.',
-                                            );
-                                          },
-                                          icon: Icon(
-                                              telemetry
-                                                      .lightingFailureSimulation
-                                                  ? Icons.flash_on
-                                                  : Icons.flash_off,
-                                              color: Colors.amber,
-                                              size: 14),
-                                          label: Text(
-                                            telemetry.lightingFailureSimulation
-                                                ? "Failure Active"
-                                                : "Lighting Failure",
-                                            style: const TextStyle(
-                                                color: Colors.amber,
-                                                fontSize: 11),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: ElevatedButton.icon(
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor:
-                                                const Color(0xFF141D32),
-                                            side: const BorderSide(
-                                                color: Colors.cyanAccent),
-                                            padding: const EdgeInsets.symmetric(
-                                                vertical: 8),
-                                          ),
-                                          onPressed: () {
-                                            final enabled =
-                                                !telemetry.nightShiftSimulation;
-                                            telemetry.setNightShiftSimulation(
-                                                enabled);
-                                            _showSimulationStatus(
-                                              context,
-                                              title: '3:00 AM shift',
-                                              enabled: enabled,
-                                              description: enabled
-                                                  ? 'The 3:00 AM scenario is active in this demo. It does not currently change live traffic or backend route data.'
-                                                  : 'The 3:00 AM scenario has been turned off.',
-                                            );
-                                          },
-                                          icon: const Icon(
-                                              Icons.nightlight_round,
-                                              color: Colors.cyanAccent,
-                                              size: 14),
-                                          label: Text(
-                                            telemetry.nightShiftSimulation
-                                                ? "3 AM Active"
-                                                : "3:00 AM Shift",
-                                            style: const TextStyle(
-                                                color: Colors.cyanAccent,
-                                                fontSize: 11),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Route lighting, map layers, and community reports',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 12,
                             ),
-                            const SizedBox(height: 16),
-                          ],
+                          ),
+                          const SizedBox(height: 22),
 
                           // 1. SAFE-ROUTE LIGHTING COVERAGE
                           Row(
@@ -270,9 +103,7 @@ class InsightsScreen extends StatelessWidget {
                                           ? telemetry.routeError == null
                                               ? "Choose a destination to calculate route lighting from the backend."
                                               : "Route lighting is unavailable until the backend reconnects."
-                                          : telemetry.lightingFailureSimulation
-                                              ? "${telemetry.failedLightingPoints.length} simulated light outage(s). Coverage shows the lit share of the recommended Safe route."
-                                              : "Coverage is the share of recommended Safe-route distance marked lit by the routing network.",
+                                          : "Coverage is the share of recommended Safe-route distance marked lit by the routing network.",
                                       style: TextStyle(
                                         color: AppColors.textSecondary
                                             .withOpacity(0.9),
@@ -607,7 +438,6 @@ class InsightsScreen extends StatelessWidget {
       ),
     );
   }
-
 }
 
 /// Custom painter rendering the glowing gradient circular radial gauge
