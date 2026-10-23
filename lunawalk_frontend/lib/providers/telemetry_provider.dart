@@ -103,12 +103,21 @@ class TelemetryProvider extends ChangeNotifier {
   DateTime? _sosTriggeredAt;
 
   bool _showAreYouOkModal = false;
-  int _areYouOkCountdown = 19;
+  int _areYouOkCountdown = 20;
   Timer? _modalTimer;
+  Timer? _stationaryTimer;
+  final Duration _stationaryTimeout;
+  final Duration _checkInTimeout;
 
   final http.Client _client;
 
-  TelemetryProvider({http.Client? client}) : _client = client ?? http.Client() {
+  TelemetryProvider({
+    http.Client? client,
+    Duration stationaryTimeout = const Duration(minutes: 3),
+    Duration checkInTimeout = const Duration(seconds: 20),
+  })  : _client = client ?? http.Client(),
+        _stationaryTimeout = stationaryTimeout,
+        _checkInTimeout = checkInTimeout {
     unawaited(_loadOsmData());
     unawaited(refreshCurrentLocation());
   }
@@ -190,6 +199,11 @@ class TelemetryProvider extends ChangeNotifier {
 
   void _updateCurrentLocation(Position position) {
     if (_isSimulationMode || _isDisposed) return;
+    final previousPosition = LatLng(_currentLat, _currentLng);
+    final nextPosition = LatLng(position.latitude, position.longitude);
+    final hasMoved =
+        const Distance().as(LengthUnit.Meter, previousPosition, nextPosition) >=
+            5;
     _currentLat = position.latitude;
     _currentLng = position.longitude;
     if (position.heading.isFinite && position.heading >= 0) {
@@ -199,6 +213,7 @@ class TelemetryProvider extends ChangeNotifier {
     _locationError = null;
     _publishAvatarPosition();
     _checkRouteDeviation();
+    if (hasMoved) _recordMeaningfulMovement();
     _scheduleRouteRefresh();
     notifyListeners();
   }
@@ -207,6 +222,7 @@ class TelemetryProvider extends ChangeNotifier {
   void dispose() {
     _isDisposed = true;
     _modalTimer?.cancel();
+    _stationaryTimer?.cancel();
     _backOnTrackTimer?.cancel();
     _routeRefreshTimer?.cancel();
     unawaited(_locationSubscription?.cancel());
@@ -297,6 +313,9 @@ class TelemetryProvider extends ChangeNotifier {
     if (_isSimulationMode == isSim) return;
     _isSimulationMode = isSim;
     _isNavigating = false;
+    _stationaryTimer?.cancel();
+    _modalTimer?.cancel();
+    _showAreYouOkModal = false;
     _resumeNavigationAfterReroute = false;
     _isOffTrack = false;
     _showOffTrackModal = false;
@@ -352,6 +371,7 @@ class TelemetryProvider extends ChangeNotifier {
     _currentLng += deltaLng;
     _publishAvatarPosition();
     _checkRouteDeviation();
+    _recordMeaningfulMovement();
     _scheduleRouteRefresh();
     final currentNavigationState = (
       isOffTrack: _isOffTrack,
@@ -871,6 +891,14 @@ class TelemetryProvider extends ChangeNotifier {
 
   void toggleVirtualBuddy() {
     _virtualBuddyEnabled = !_virtualBuddyEnabled;
+    if (_virtualBuddyEnabled) {
+      _resetStationaryTimer();
+    } else {
+      _stationaryTimer?.cancel();
+      _modalTimer?.cancel();
+      _showAreYouOkModal = false;
+      _buddyConsoleStatus = "MONITORING";
+    }
     notifyListeners();
   }
 
@@ -905,8 +933,10 @@ class TelemetryProvider extends ChangeNotifier {
   }
 
   void simulateWalkGpsDrift() {
+    if (_isSosActive || _showAreYouOkModal) return;
     _showAreYouOkModal = true;
-    _areYouOkCountdown = 19;
+    _areYouOkCountdown = _checkInTimeout.inSeconds;
+    _stationaryTimer?.cancel();
     _buddyConsoleStatus = "CHECKING IN";
     notifyListeners();
 
@@ -926,19 +956,53 @@ class TelemetryProvider extends ChangeNotifier {
   void dismissAreYouOkModal() {
     _modalTimer?.cancel();
     _showAreYouOkModal = false;
-    _buddyConsoleStatus = "MONITORING";
+    _buddyConsoleStatus = _isOffTrack
+        ? "OFF ROUTE"
+        : _hasReachedDestination
+            ? "ARRIVED"
+            : "MONITORING";
+    _resetStationaryTimer();
     notifyListeners();
   }
 
   void toggleSosAlert() {
     _isSosActive = !_isSosActive;
     if (_isSosActive) {
+      _stationaryTimer?.cancel();
+      _modalTimer?.cancel();
+      _showAreYouOkModal = false;
       _sosTriggeredAt = DateTime.now();
       _buddyConsoleStatus = "CRITICAL SOS";
     } else {
       _buddyConsoleStatus = "MONITORING";
+      _resetStationaryTimer();
     }
     notifyListeners();
+  }
+
+  void _recordMeaningfulMovement() {
+    if (_showAreYouOkModal) {
+      _modalTimer?.cancel();
+      _showAreYouOkModal = false;
+      _buddyConsoleStatus = _isOffTrack
+          ? "OFF ROUTE"
+          : _hasReachedDestination
+              ? "ARRIVED"
+              : "MONITORING";
+      notifyListeners();
+    }
+    _resetStationaryTimer();
+  }
+
+  void _resetStationaryTimer() {
+    _stationaryTimer?.cancel();
+    if (!_isNavigating ||
+        !_virtualBuddyEnabled ||
+        _isSosActive ||
+        _showAreYouOkModal) {
+      return;
+    }
+    _stationaryTimer = Timer(_stationaryTimeout, simulateWalkGpsDrift);
   }
 
   void stopNavigation() {
@@ -955,6 +1019,9 @@ class TelemetryProvider extends ChangeNotifier {
     _lastAnnouncedTurnIndex = null;
     _hasReachedDestination = false;
     _backOnTrackTimer?.cancel();
+    _stationaryTimer?.cancel();
+    _modalTimer?.cancel();
+    _showAreYouOkModal = false;
     _buddyConsoleStatus = "MONITORING";
     notifyListeners();
   }
@@ -980,6 +1047,7 @@ class TelemetryProvider extends ChangeNotifier {
     _hasReachedDestination = false;
     _lastAnnouncedTurnIndex = null;
     _navigationInstruction = 'Start walking toward $destinationName.';
+    _resetStationaryTimer();
     _checkRouteDeviation();
     notifyListeners();
   }

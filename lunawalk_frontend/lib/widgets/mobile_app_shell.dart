@@ -75,6 +75,7 @@ class _MobileAppShellState extends State<MobileAppShell> {
 
   @override
   Widget build(BuildContext context) {
+    final telemetry = Provider.of<TelemetryProvider>(context);
     if (!isLoggedIn) {
       return Scaffold(
         backgroundColor: Colors.black,
@@ -340,39 +341,131 @@ class _MobileAppShellState extends State<MobileAppShell> {
       SettingsScreen(onLogout: _doLogout),
     ];
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: pages[_currentIndex],
-      // Bottom navigation container expanded to fill screen width cleanly
-      bottomNavigationBar: Container(
-        color: Colors.black,
-        width: double.infinity,
-        height: 78, // Expanded height so frame3 looks full and fits the screen
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // 1. FRAME3 ASSET BACKGROUND (Edge-to-edge)
-            Image.asset(
-              'assets/images/frame3.jpeg',
-              fit: BoxFit.fill,
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: Colors.black,
+          body: pages[_currentIndex],
+          // Bottom navigation container expanded to fill screen width cleanly
+          bottomNavigationBar: Container(
+            color: Colors.black,
+            width: double.infinity,
+            height:
+                78, // Expanded height so frame3 looks full and fits the screen
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.asset(
+                  'assets/images/frame3.jpeg',
+                  fit: BoxFit.fill,
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16.0, 10.0, 16.0, 10.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildNavItem(Icons.map, "Map", 0),
+                      _buildNavItem(Icons.bar_chart, "Insights", 1),
+                      _buildNavItem(Icons.shield, "Support", 2),
+                      _buildNavItem(Icons.settings, "Settings", 3),
+                    ],
+                  ),
+                ),
+              ],
             ),
-
-            // 2. NAVIGATION BUTTONS POSITIONED SAFELY WITHIN FRAME'S INNER WINDOW
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16.0, 10.0, 16.0, 10.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildNavItem(Icons.map, "Map", 0),
-                  _buildNavItem(Icons.bar_chart, "Insights", 1),
-                  _buildNavItem(Icons.shield, "Support", 2),
-                  _buildNavItem(Icons.settings, "Settings", 3),
-                ],
+          ),
+        ),
+        if (telemetry.showAreYouOkModal)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.78),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 360),
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: AppColors.inputBackground,
+                        borderRadius: BorderRadius.circular(22),
+                        border:
+                            Border.all(color: Colors.orangeAccent, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.orangeAccent.withValues(alpha: 0.28),
+                            blurRadius: 24,
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.health_and_safety,
+                            color: Colors.orangeAccent,
+                            size: 52,
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Are you okay?',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: AppColors.textMain,
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'We haven’t detected movement for 3 minutes. Confirm you’re safe or SOS will activate.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            '${telemetry.areYouOkCountdown} seconds remaining',
+                            style: const TextStyle(
+                              color: Colors.orangeAccent,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: telemetry.dismissAreYouOkModal,
+                              icon: const Icon(Icons.check_circle_outline),
+                              label: const Text("I'm Safe"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.routeSafe,
+                                foregroundColor: Colors.black,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 13),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: telemetry.toggleSosAlert,
+                            child: const Text(
+                              'Send SOS now',
+                              style: TextStyle(color: Colors.redAccent),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }

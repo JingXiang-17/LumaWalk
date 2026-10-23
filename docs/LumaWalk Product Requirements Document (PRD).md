@@ -150,8 +150,8 @@ Errors follow RFC 9457 Problem Details standards, including `Retry-After` header
 ## **Virtual Buddy (Shadow Walk) Escalation State Machine**
 
 * **Target state machine**: User stays within 35m of the route, then receives a check-in prompt after deviation or a stationary period. This remains the product target.  
-* **Current backend behavior**: The implemented service starts an in-memory session, uses a 50m deviation threshold or 180 seconds between pings, returns `WARNING_DEVIATED` or `WARNING_STATIONARY`, and logs a simulated emergency dispatch in a background task.  
-* **Frontend demo behavior**: The Flutter app provides local simulation, SOS, hazard, and check-in flows; these are not yet connected to a production alert service.  
+* **Current backend behavior**: The implemented service starts an in-memory session, uses a 50m deviation threshold or a gap of more than 180 seconds between pings, returns `WARNING_DEVIATED` or `WARNING_STATIONARY`, and logs a simulated emergency dispatch in a background task. The stationary check does not compare successive ping positions for movement.
+* **Frontend demo behavior**: During navigation, the Flutter app prompts after three minutes without meaningful movement. If the user does not confirm they are safe within 20 seconds, local SOS mode activates. These local simulation, SOS, hazard, and check-in flows are not connected to a production alert service.
   * *If "I'm Safe" clicked:* Resolves to State 1\.  
   * *If 20s expires:* Moves to State 4\. Backend sends  `CRITICAL`  
 * **State 4 (Alert Dispatch)**: Backend retrieves the user's `trusted_contacts` record and dispatches an emergency Webhook/SMS with the exact location.
@@ -240,4 +240,3 @@ To maintain transparency with technical judges, the following elements are expli
 | **Safe Haven POIs  /\**& Crowd Reports\**/** | **REAL / MOCK** | Seeded manually (approx. 15 locations) to demonstrate the algorithm. |
 | **Virtual Buddy GPS Movement** | **SIMULATED** | Coordinates follow the polyline programmatically for the demo (not a real person walking). |
 | **Emergency Alert Dispatch** | **MOCK** | Simulated via a terminal console log or webhook ping (no actual paid SMS gateway integrated). |
-

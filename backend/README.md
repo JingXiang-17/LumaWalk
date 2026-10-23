@@ -96,7 +96,7 @@ The response contains a generated `session_id`. Use it when sending telemetry up
 }
 ```
 
-The service returns the current session status and the calculated cross-track error in meters. A deviation greater than 50 meters or more than three minutes without movement triggers the simulated emergency dispatch log.
+The service returns the current session status and the calculated cross-track error in meters. A deviation greater than 50 meters or a gap of more than 180 seconds between telemetry pings triggers the simulated emergency dispatch log. The stationary check does not compare successive ping positions for movement.
 
 ## Project Structure
 

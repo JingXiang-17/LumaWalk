@@ -234,4 +234,127 @@ void main() {
     expect(telemetry.safeRoute!.points.last, alternateDestination);
     expect(telemetry.hasReachedDestination, isFalse);
   });
+
+  test('stationary check-in automatically escalates when unanswered', () async {
+    final telemetry = TelemetryProvider(
+      client: MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final start = [body['start_lat'], body['start_lng']];
+        final destination = [body['end_lat'], body['end_lng']];
+        return http.Response(
+          jsonEncode({
+            'safe_route_coords': [start, destination],
+            'safe_distance': 1000.0,
+            'direct_route_coords': [start, destination],
+            'direct_distance': 1000.0,
+            'percentage_lit': 80.0,
+            'detour_time_seconds': 100,
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+      stationaryTimeout: const Duration(milliseconds: 50),
+      checkInTimeout: const Duration(seconds: 2),
+    );
+    addTearDown(telemetry.dispose);
+
+    telemetry.setSimulationMode(true);
+    telemetry.setDestination(
+      const LatLng(3.1279, 101.6501),
+      name: 'UM FSKTM',
+    );
+    final routeDeadline = DateTime.now().add(const Duration(seconds: 5));
+    while (telemetry.safeRoute == null &&
+        telemetry.routeError == null &&
+        DateTime.now().isBefore(routeDeadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+
+    expect(telemetry.safeRoute, isNotNull);
+    telemetry.selectRoute(0);
+    telemetry.startNavigation();
+
+    final checkInDeadline = DateTime.now().add(const Duration(seconds: 2));
+    while (!telemetry.showAreYouOkModal &&
+        DateTime.now().isBefore(checkInDeadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+
+    expect(telemetry.showAreYouOkModal, isTrue);
+    expect(telemetry.buddyConsoleStatus, 'CHECKING IN');
+
+    final sosDeadline = DateTime.now().add(const Duration(seconds: 3));
+    while (!telemetry.isSosActive && DateTime.now().isBefore(sosDeadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+
+    expect(telemetry.isSosActive, isTrue);
+    expect(telemetry.showAreYouOkModal, isFalse);
+    expect(telemetry.buddyConsoleStatus, 'CRITICAL SOS');
+  });
+
+  test('movement and safe check-in reset stationary monitoring', () async {
+    final telemetry = TelemetryProvider(
+      client: MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final start = [body['start_lat'], body['start_lng']];
+        final destination = [body['end_lat'], body['end_lng']];
+        return http.Response(
+          jsonEncode({
+            'safe_route_coords': [start, destination],
+            'safe_distance': 1000.0,
+            'direct_route_coords': [start, destination],
+            'direct_distance': 1000.0,
+            'percentage_lit': 80.0,
+            'detour_time_seconds': 100,
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+      stationaryTimeout: const Duration(milliseconds: 50),
+      checkInTimeout: const Duration(seconds: 2),
+    );
+    addTearDown(telemetry.dispose);
+
+    telemetry.setSimulationMode(true);
+    telemetry.setDestination(
+      const LatLng(3.1279, 101.6501),
+      name: 'UM FSKTM',
+    );
+    final routeDeadline = DateTime.now().add(const Duration(seconds: 5));
+    while (telemetry.safeRoute == null &&
+        telemetry.routeError == null &&
+        DateTime.now().isBefore(routeDeadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(telemetry.safeRoute, isNotNull);
+
+    telemetry.selectRoute(0);
+    telemetry.startNavigation();
+    final checkInDeadline = DateTime.now().add(const Duration(seconds: 2));
+    while (!telemetry.showAreYouOkModal &&
+        DateTime.now().isBefore(checkInDeadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(telemetry.showAreYouOkModal, isTrue);
+
+    telemetry.moveAvatar(0.00001, 0.00001);
+    expect(telemetry.showAreYouOkModal, isFalse);
+    expect(telemetry.isSosActive, isFalse);
+
+    final repeatedCheckInDeadline =
+        DateTime.now().add(const Duration(seconds: 2));
+    while (!telemetry.showAreYouOkModal &&
+        DateTime.now().isBefore(repeatedCheckInDeadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(telemetry.showAreYouOkModal, isTrue);
+
+    telemetry.dismissAreYouOkModal();
+    expect(telemetry.showAreYouOkModal, isFalse);
+    expect(telemetry.isSosActive, isFalse);
+    expect(telemetry.buddyConsoleStatus, 'MONITORING');
+  });
 }

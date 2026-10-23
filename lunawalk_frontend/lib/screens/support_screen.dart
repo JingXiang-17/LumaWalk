@@ -1025,6 +1025,7 @@ class SupportScreen extends StatelessWidget {
                                           Colors.cyanAccent.withOpacity(0.06),
                                     ),
                                     onPressed: () {
+                                      telemetry.dismissAreYouOkModal();
                                       _showActionDialog(
                                         context,
                                         title: "You're checked in",
