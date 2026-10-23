@@ -37,16 +37,25 @@ jobs:
           git init
           git checkout -b main
           
-          # Initialize Git LFS and track the offending binary files
           git lfs install
           git lfs track "*.wasm"
           git lfs track "*.jpeg"
           git lfs track "*.jpg"
           git lfs track "*.wav"
           git lfs track "*.png"
-          git add .gitattributes
+          
+          # Generate the required Hugging Face configuration file
+          cat <<EOF > README.md
+          ---
+          title: LumaWalk
+          emoji: 🏃
+          colorFrom: blue
+          colorTo: indigo
+          sdk: static
+          pinned: false
+          ---
+          EOF
           
           git add .
-          git commit -m "Deploy prototype with LFS"
-          # Using your specific Hugging Face repo from the error log
+          git commit -m "Deploy prototype with HF config"
           git push -f https://AC865:$HF_TOKEN@huggingface.co/spaces/AC865/LumaWalk main
