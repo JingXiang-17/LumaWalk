@@ -68,7 +68,7 @@ Accepts start and end coordinates inside the supported Petaling Jaya map area:
 }
 ```
 
-The response includes the safety-aware route, direct route, distances, percentage of the route that is lit, and estimated detour time.
+The response includes the safety-aware route, direct route, distances, a distance-weighted lighting score based on each edge's `w_light` value, and estimated detour time.
 
 ### Start a buddy session
 

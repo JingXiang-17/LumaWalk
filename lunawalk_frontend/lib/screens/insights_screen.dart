@@ -103,7 +103,7 @@ class InsightsScreen extends StatelessWidget {
                                           ? telemetry.routeError == null
                                               ? "Choose a destination to calculate route lighting from the backend."
                                               : "Route lighting is unavailable until the backend reconnects."
-                                          : "Coverage is the share of recommended Safe-route distance marked lit by the routing network.",
+                                          : "Lighting is the distance-weighted score for the recommended Safe route, based on the network's edge lighting values.",
                                       style: TextStyle(
                                         color: AppColors.textSecondary
                                             .withOpacity(0.9),

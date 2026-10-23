@@ -42,18 +42,16 @@ def get_safe_route(request: RouteRequest):
     safe_coords = [[G.nodes[n].get('y', 0.0), G.nodes[n].get('x', 0.0)] for n in safe_path]
     direct_coords = [[G.nodes[n].get('y', 0.0), G.nodes[n].get('x', 0.0)] for n in direct_path]
     
-    # Calculate lighting metric
-    lit_distance = 0
+    # W_light is a continuous score, so calculate a distance-weighted route score.
+    lighting_score = 0.0
     for i in range(len(safe_path) - 1):
         u = safe_path[i]
         v = safe_path[i+1]
-        # Bypass the string/int key issue by forcing a list conversion
         edge_data = algo.edge_attributes(G[u][v])
-        # The data pipeline uses a float metric 'w_light', not a boolean 'is_lit'
-        if float(edge_data.get('w_light', 0.0)) >= 0.5:
-            lit_distance += float(edge_data.get('length', 0.0))
+        edge_length = float(edge_data.get('length', 0.0))
+        lighting_score += edge_length * algo.edge_lighting_score(edge_data)
             
-    percentage_lit = round((lit_distance / safe_distance) * 100, 2) if safe_distance > 0 else 0.0
+    percentage_lit = round((lighting_score / safe_distance) * 100, 2) if safe_distance > 0 else 0.0
 
     # Calculate detour time
     extra_distance_meters = safe_distance - direct_distance

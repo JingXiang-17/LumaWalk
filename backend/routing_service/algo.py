@@ -8,6 +8,14 @@ def edge_attributes(data):
         return next(iter(data.values()))
     return data
 
+def edge_lighting_score(data, default=0.0):
+    edge_data = edge_attributes(data)
+    if 'w_light' in edge_data:
+        return min(max(float(edge_data['w_light']), 0.0), 1.0)
+    if isinstance(edge_data.get('is_lit'), bool):
+        return float(edge_data['is_lit'])
+    return default
+
 def create_dummy_graph():
     G = nx.Graph()
     for i in range(1, 11):
@@ -31,7 +39,7 @@ def custom_safety_cost(u, v, d):
     edge_data = edge_attributes(d)
     
     distance = float(edge_data.get('length', 1.0))
-    w_light = float(edge_data.get('w_light', 0.1))
+    w_light = edge_lighting_score(edge_data, default=0.1)
     w_haven = float(edge_data.get('w_haven', 0.1))
     safety_score = (w_light + w_haven) / 2
     
